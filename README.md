@@ -1,1 +1,0 @@
-# Shako.win-Counter-Unnamed
