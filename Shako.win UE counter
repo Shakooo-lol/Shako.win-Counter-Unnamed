@@ -1,4 +1,4 @@
--- shako.win | Rivals HVH v5.23.8 · LuaHook ESP + silent
+-- shako.win | Rivals HVH v5.27.8 · LuaHook ESP + silent
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -129,7 +129,7 @@ do
     local ok, win = pcall(function()
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v5.23.8 · Rivals HVH",
+            Footer = "v5.27.8 · Rivals HVH",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -2383,20 +2383,40 @@ local function EnsureSky()
     return skyboxData.sky_obj
 end
 
-local function ApplySkybox()
+local function ApplySkybox(force)
     if not skyboxData.enabled then return end
-    local sky = EnsureSky()
+    local sky = skyboxData.sky_obj
+    local needRebuild = force or not sky or not sky.Parent or sky.Parent ~= Lighting
+    if needRebuild then
+        for _, c in ipairs(Lighting:GetChildren()) do
+            if c:IsA("Sky") and not c:GetAttribute("ShakoSky") and not c:GetAttribute("WX_Custom") then
+                pcall(function() c:Destroy() end)
+            end
+        end
+        skyboxData.sky_obj = nil
+        sky = EnsureSky()
+    end
     if not sky then return end
-    local tex = SkyboxPresets[skyboxData.selected] or SkyboxPresets["None"]
-    sky.SkyboxBk = tex.SkyboxBk
-    sky.SkyboxDn = tex.SkyboxDn
-    sky.SkyboxFt = tex.SkyboxFt
-    sky.SkyboxLf = tex.SkyboxLf
-    sky.SkyboxRt = tex.SkyboxRt
-    sky.SkyboxUp = tex.SkyboxUp
-    sky.SunAngularSize = skyboxData.sun_size
-    sky.MoonAngularSize = skyboxData.moon_size
-    sky.StarCount = skyboxData.star_count
+    pcall(function() sky:SetAttribute("ShakoSky", true) end)
+    local name = skyboxData.selected
+    if (not name or name == "None" or name == "Off") and config and config.SkyboxPreset then
+        name = config.SkyboxPreset
+    end
+    local tex = SkyboxPresets[name] or SkyboxPresets[skyboxData.selected] or SkyboxPresets["None"]
+    if not tex then return end
+    -- solo escribir si cambió (menos trabajo en Lighting)
+    if force or sky.SkyboxBk ~= tex.SkyboxBk then
+        sky.SkyboxBk = tex.SkyboxBk
+        sky.SkyboxDn = tex.SkyboxDn
+        sky.SkyboxFt = tex.SkyboxFt
+        sky.SkyboxLf = tex.SkyboxLf
+        sky.SkyboxRt = tex.SkyboxRt
+        sky.SkyboxUp = tex.SkyboxUp
+    end
+    sky.SunAngularSize = skyboxData.sun_size or 20
+    sky.MoonAngularSize = skyboxData.moon_size or 11
+    sky.StarCount = skyboxData.star_count or 3000
+    skyboxData.sky_obj = sky
 end
 
 skyboxData = skyboxData or {enabled=false, selected="None", sky_obj=nil, auto_rotate=false, rotate_speed=10, star_count=3000, sun_size=20, moon_size=11}
@@ -2430,8 +2450,10 @@ local function updateRatio()
 end
 task.spawn(function()
     while true do
-        task.wait(0.05)
-        pcall(updateRatio)
+        task.wait(0.12)
+        if states and states.ratio_state and states.ratio_state.enabled then
+            pcall(updateRatio)
+        end
     end
 end)
 
@@ -2473,6 +2495,79 @@ getgenv()._ShakoDeviceSpam = DeviceSpam
 getgenv()._ShakoUpdateMarketplace = UpdateMarketplace
 getgenv()._ShakoSkyPresets = SkyboxPresets
 getgenv()._ShakoApplySkybox = ApplySkybox
+-- Persistencia liviana (sin micro-lag): solo repara si se perdió el sky/weather
+getgenv().ShakoVisualPersist = true
+do
+    local lastSkyFix, lastWxFix = 0, 0
+    pcall(function()
+        Lighting.ChildAdded:Connect(function(c)
+            if not c:IsA("Sky") then return end
+            if c:GetAttribute("ShakoSky") or c:GetAttribute("WX_Custom") then return end
+            if not (skyboxData and skyboxData.enabled) and not (config and config.SkyboxPreset and config.SkyboxPreset ~= "Off") then
+                return
+            end
+            task.defer(function()
+                local now = tick()
+                if now - lastSkyFix < 0.5 then return end
+                lastSkyFix = now
+                pcall(function() c:Destroy() end)
+                if skyboxData and skyboxData.enabled then
+                    pcall(function() ApplySkybox(true) end)
+                elseif config and config.SkyboxPreset and config.SkyboxPreset ~= "Off" and Weather and Weather.setSkybox then
+                    pcall(function() Weather.setSkybox(config.SkyboxPreset) end)
+                end
+            end)
+        end)
+    end)
+    task.spawn(function()
+        while getgenv().ShakoVisualPersist do
+            task.wait(3.5) -- más lento = menos lag
+            -- sky solo si falta
+            if skyboxData and skyboxData.enabled then
+                local sk = skyboxData.sky_obj
+                if not sk or not sk.Parent then
+                    pcall(function() ApplySkybox(true) end)
+                end
+            end
+            -- weather solo si faltó folder
+            if config and (config.WeatherEnabled or config.Weather) then
+                local f = workspace:FindFirstChild("_wx")
+                if not f and Weather and Weather.enableWeather then
+                    local now = tick()
+                    if now - lastWxFix > 4 then
+                        lastWxFix = now
+                        pcall(function() Weather.enableWeather() end)
+                    end
+                end
+            end
+            if config and config.SkyboxPreset and config.SkyboxPreset ~= "Off" then
+                local has = false
+                for _, c in ipairs(Lighting:GetChildren()) do
+                    if c:IsA("Sky") and (c:GetAttribute("WX_Custom") or c:GetAttribute("ShakoSky")) then
+                        has = true
+                        break
+                    end
+                end
+                if not has and Weather and Weather.setSkybox then
+                    pcall(function() Weather.setSkybox(config.SkyboxPreset) end)
+                end
+            end
+        end
+    end)
+    -- respawn: 1 sola reaplicación retardada
+    pcall(function()
+        LocalPlayer.CharacterAdded:Connect(function()
+            task.delay(1.2, function()
+                if skyboxData and skyboxData.enabled then pcall(function() ApplySkybox(true) end) end
+                local f = workspace:FindFirstChild("_wx")
+                if config and (config.WeatherEnabled or config.Weather) and not f then
+                    pcall(function() if Weather and Weather.enableWeather then Weather.enableWeather() end end)
+                end
+            end)
+        end)
+    end)
+end
+
 getgenv()._ShakoEnsureSky = EnsureSky
 getgenv()._ShakoSkyData = skyboxData
 getgenv()._ShakoUpdateRatio = updateRatio
@@ -3246,11 +3341,12 @@ getgenv().config = {
     FXKillBanner = false,
     FXKillBannerColor = Color3.fromRGB(255, 194, 75),
     KillSoundEnabled = true,
-    HitSoundVolume = 2,
-    KillSoundVolume = 3,
+    HitSoundVolume = 6,
+    KillSoundVolume = 7,
     HitSoundMode = "Random",
     KillSoundMode = "Random",
-    SelectedHitSound = "Never Lose",
+    SelectedHitSound = "Rust HS",
+    HitSoundPitch = 1,
     SelectedKillSound = "OOF",
     HitSoundCooldown = 0.08,
     KillSoundCooldown = 0.35,
@@ -3274,7 +3370,7 @@ getgenv().config = {
     DefaultJumpHeight = 7.2,
     SlideBoostEnabled = false,
     SlideBoostMult = 2.5,
-    SlideBoostKey = "C", -- tecla slide (C / LeftControl)
+    SlideBoostKey = "C", -- solo C por defecto
     SlideBaseSpeed = 45, -- velocidad base del slide si Speed OFF
     InfinityJump = false,
 
@@ -3289,6 +3385,13 @@ getgenv().config = {
     SpawnDelay = 1.0,
 
     RagebotEnabled = false,
+    RageIndicatorEnabled = true,
+    RageStatusEnabled = true,
+    RageIndicatorSnapline = true,
+    RageIndicatorColor = "Red",
+    RageStatusMode = "static", -- static / crosshair
+    RageStatusOffsetY = 48,
+
     RageDesync = true,
     RageLookSyncOnShoot = false,
     RageHideLocal = false,
@@ -3339,7 +3442,10 @@ getgenv().config = {
     SilentForceAiming = true,
     SilentFOVFill = true,
     SilentFOVFillTransparency = 0.92,
-    SilentFOVAnimated = false,
+    SilentFOVAnimated = true,
+    SilentFOVSpin = true,
+    SilentFOVSpinSpeed = 1.2,
+    SilentFOVThickness = 1.5,
     SilentFOVColor = "White",
 
     AimbotWallCheck = false,
@@ -3376,6 +3482,7 @@ getgenv().config = {
     EmoteSpeed = 1,
     EmoteLoop = true,
     EmoteKeepPlaying = true,
+    EmoteAlwaysOn = true,
     EmotePriority = "Action4",
 
     AutoClickEnabled = false,
@@ -3418,6 +3525,12 @@ getgenv().config = {
     TriggerbotPart = "Head",
 
     AutoEquipMelee = false,
+    AutoEquipEnabled = false,
+    AutoEquipName = "Chainsaw",
+    AutoEquipAny = false,
+    AutoEquipSlot = 3, -- 1 primary 2 secondary 3 melee
+    AutoEquipInterval = 0.35,
+    AutoEquipDelay = 0.8,
     MeleeName = "Chainsaw",
     DesyncJitter = false,
     DesyncJitterPower = 12,
@@ -3549,9 +3662,12 @@ getgenv().config = {
     -- Bullet tracers
     BulletTracerEnabled = false,
     BulletTracerColor = "Cyan",
-    BulletTracerDuration = 1.2,
-    BulletTracerThickness = 1.8,
+    BulletTracerDuration = 2.5,
+    BulletTracerThickness = 1.5,
     BulletTracerFromGun = true,
+    BulletTracerStyle = "Line",
+    BulletTracerGlow = 0.45,
+    BulletTracerFade = 0.5,
 
     -- Stretched resolution
     StretchedRes = false,
@@ -4759,33 +4875,65 @@ end
 
 -- Defense NO auto-start (solo si usuario activa opciones)
 
--- ==================== HIT / KILL SONGS (IDs públicos que suelen funcionar) ====================
+-- ==================== HIT / KILL SOUNDS (Grief.cc assets + detection) ====================
 local SoundService = game:GetService("SoundService")
 local SFX = {
-    -- Hit (shako + AURORA)
+    -- rbxassetid from Grief.cc soundsassets (robados)
     hit = {
-        ["Never Lose"]    = 6607204501,
-        ["MLG Airhorn"]   = 678089961,
-        ["Vine Boom"]     = 5058160717,
-        ["TF2 Crit"]      = 8255306220,
-        ["Boom Headshot"] = 7361085557,
-        ["Quake Hit"]     = 1455817260,
-        -- AURORA
-        ["Bameware"]      = 130791763,
-        ["Bell"]          = 146680539,
-        ["Bubble"]        = 146665237,
-        ["Click"]         = 146633140,
-        ["Pop"]           = 146681941,
-        ["Rust"]          = 146692956,
-        ["Fart"]          = 130791763,
-        ["Big"]           = 130792279,
-        ["Vine"]          = 146606035,
-        ["Bruh"]          = 146657737,
-        ["Skeet"]         = 130791733,
-        ["Neverlose"]     = 146633485,
-        ["Fatality"]      = 146665147,
-        ["Bonk"]          = 146661497,
-        ["Minecraft"]     = 146649495,
+        ["Rust HS"]           = 5043539486,
+        ["Neverlose"]         = 97643101798871,
+        ["Minecraft Bow"]     = 3442683707,
+        ["Minecraft Hit"]     = 8766809464,
+        ["CSGO"]              = 5764885315,
+        ["Bubble"]            = 6534947588,
+        ["Lazer"]             = 130791043,
+        ["Pick"]              = 1347140027,
+        ["Pop"]               = 198598793,
+        ["Rust"]              = 1255040462,
+        ["Sans"]              = 3188795283,
+        ["Fart"]              = 130833677,
+        ["Big"]               = 5332005053,
+        ["Vine"]              = 5332680810,
+        ["UwU"]               = 8679659744,
+        ["Bruh"]              = 4578740568,
+        ["Skeet"]             = 5633695679,
+        ["Fatality"]          = 6534947869,
+        ["Bonk"]              = 5766898159,
+        ["Minecraft"]         = 5869422451,
+        ["Gamesense"]         = 4817809188,
+        ["RIFK7"]             = 9102080552,
+        ["Bamboo"]            = 3769434519,
+        ["Crowbar"]           = 546410481,
+        ["Weeb"]              = 6442965016,
+        ["Beep"]              = 8177256015,
+        ["Bambi"]             = 8437203821,
+        ["Stone"]             = 3581383408,
+        ["Old Fatality"]      = 6607142036,
+        ["Click"]             = 8053704437,
+        ["Ding"]              = 7149516994,
+        ["Snow"]              = 6455527632,
+        ["Laser"]             = 7837461331,
+        ["Mario"]             = 2815207981,
+        ["Steve"]             = 4965083997,
+        ["Call of Duty"]      = 5952120301,
+        ["Bat"]               = 3333907347,
+        ["TF2 Critical"]      = 296102734,
+        ["Saber"]             = 8415678813,
+        ["Baimware"]          = 3124331820,
+        ["Osu"]               = 7149255551,
+        ["TF2"]               = 2868331684,
+        ["Slime"]             = 6916371803,
+        ["Among Us"]          = 5700183626,
+        ["One"]               = 7380502345,
+        ["Soft Bell"]         = 9114487369,
+        ["Minecraft Bow Hit"] = 1053296915,
+        -- legacy aliases
+        ["Never Lose"]        = 5043539486,
+        ["TF2 Crit"]          = 296102734,
+        ["Vine Boom"]         = 5332680810,
+        ["MLG Airhorn"]       = 678089961,
+        ["Boom Headshot"]     = 7361085557,
+        ["Quake Hit"]         = 1455817260,
     },
     kill = {
         ["OOF"]           = 15666462,
@@ -4794,57 +4942,121 @@ local SFX = {
         ["Emotional Dmg"] = 8388105535,
         ["You Are Bad"]   = 7163786825,
         ["Alone"]         = 7734793940,
+        ["Fatality"]      = 6534947869,
+        ["Vine"]          = 5332680810,
+        ["Among Us"]      = 5700183626,
+        ["TF2 Critical"]  = 296102734,
+        ["Neverlose"]     = 97643101798871,
+        ["Rust HS"]       = 5043539486,
     },
     hitNames = {
-        "Never Lose","MLG Airhorn","Vine Boom","TF2 Crit","Boom Headshot","Quake Hit",
-        "Bameware","Bell","Bubble","Click","Pop","Rust","Fart","Big","Vine","Bruh",
-        "Skeet","Neverlose","Fatality","Bonk","Minecraft"
+        "Rust HS","Neverlose","Gamesense","Skeet","Fatality","Bonk","Osu","CSGO",
+        "TF2 Critical","TF2","Minecraft","Minecraft Hit","Bubble","Bruh","Vine",
+        "Among Us","Click","Ding","Beep","Laser","Lazer","UwU","Weeb","Bamboo",
+        "Crowbar","Bat","Saber","Stone","Snow","Steve","Mario","Call of Duty",
+        "Baimware","RIFK7","Old Fatality","Big","Fart","Sans","Pick","Pop","Rust",
+        "One","Soft Bell","Minecraft Bow","Minecraft Bow Hit","Bambi","Slime",
     },
-    killNames = {"OOF", "New Death", "Wake Up Bozo", "Emotional Dmg", "You Are Bad", "Alone"},
+    killNames = {
+        "OOF","New Death","Wake Up Bozo","Emotional Dmg","You Are Bad","Alone",
+        "Fatality","Vine","Among Us","TF2 Critical","Neverlose","Rust HS",
+    },
     lastHit = 0, lastKill = 0, hp = {},
     auroraHooked = false,
+    pitch = 1,
 }
-function SFX.play(id, vol)
-    if not id or id == 0 then return end
-    -- varios parents: SoundService es el más fiable en cliente
-    local function try(parent)
+
+-- ==================== SFX PLAY (PlayLocalSound = sí se oye) ====================
+-- IDs que casi siempre cargan en cliente Roblox
+SFX.FALLBACK_HIT = 12222216
+SFX.FALLBACK_KILL = 15666462
+-- remap nombres populares a IDs que sí suenan
+pcall(function()
+    SFX.hit = SFX.hit or {}
+    SFX.hit["Rust HS"] = 12222216
+    SFX.hit["Neverlose"] = 12222216
+    SFX.hit["Never Lose"] = 12222216
+    SFX.hit["TF2 Critical"] = 296102734
+    SFX.hit["TF2 Crit"] = 296102734
+    SFX.hit["Click"] = 12222216
+    SFX.hit["CSGO"] = 5764885315
+    SFX.hit["Skeet"] = 5633695679
+    SFX.kill = SFX.kill or {}
+    SFX.kill["OOF"] = 15666462
+    SFX.kill["Fatality"] = 6534947869
+end)
+
+function SFX.play(id, vol, pitch)
+    local num = tonumber(tostring(id or ""):match("%d+")) or SFX.FALLBACK_HIT
+    local volN = math.clamp(tonumber(vol) or tonumber(config and config.HitSoundVolume) or 7, 1, 10)
+    local pid = math.clamp(tonumber(pitch) or tonumber(config and config.HitSoundPitch) or 1, 0.5, 3)
+
+    local function one(soundId, volume)
         local s = Instance.new("Sound")
-        s.Name = "AS_SFX"
-        s.SoundId = "rbxassetid://" .. tostring(id)
-        s.Volume = math.clamp(tonumber(vol) or 2, 0.1, 10)
-        s.PlaybackSpeed = 1
+        s.Name = "ShakoHS"
+        s.SoundId = "rbxassetid://" .. tostring(soundId)
+        s.Volume = volume
+        s.PlaybackSpeed = pid
         s.Looped = false
         s.PlayOnRemove = false
-        s.Parent = parent
-        s:Play()
-        task.delay(8, function()
-            pcall(function() s:Stop() s:Destroy() end)
+        -- parent al SoundService
+        s.Parent = SoundService
+        -- método oficial cliente
+        pcall(function() SoundService:PlayLocalSound(s) end)
+        pcall(function() s:Play() end)
+        -- backup en PlayerGui (algunos juegos mutean SS)
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            if pg then
+                local s2 = s:Clone()
+                s2.Parent = pg
+                pcall(function() SoundService:PlayLocalSound(s2) end)
+                pcall(function() s2:Play() end)
+                task.delay(4, function() pcall(function() s2:Destroy() end) end)
+            end
         end)
+        -- backup HRP
+        pcall(function()
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local s3 = s:Clone()
+                s3.Parent = hrp
+                pcall(function() s3:Play() end)
+                task.delay(4, function() pcall(function() s3:Destroy() end) end)
+            end
+        end)
+        task.delay(5, function() pcall(function() s:Destroy() end) end)
         return s
     end
-    local ok = pcall(function() try(SoundService) end)
-    if not ok then
-        pcall(function()
-            local cam = workspace.CurrentCamera
-            if cam then try(cam) else try(workspace) end
-        end)
-    end
+
+    one(num, volN)
+    -- si el id no es el fallback, también no duplicar; el fallback se usa solo si falla detection
 end
+
 function SFX.hit()
     if not config.HitSoundEnabled then return end
-    if tick() - SFX.lastHit < (config.HitSoundCooldown or 0.08) then return end
-    SFX.lastHit = tick()
-    local name = config.SelectedHitSound or "Never Lose"
-    if config.HitSoundMode == "Random" then name = SFX.hitNames[math.random(1, #SFX.hitNames)] end
-    SFX.play(SFX.hit[name] or SFX.hit["TF2 Crit"], config.HitSoundVolume or 2)
+    local now = tick()
+    if now - (SFX.lastHit or 0) < (tonumber(config.HitSoundCooldown) or 0.02) then return end
+    SFX.lastHit = now
+    local name = config.SelectedHitSound or "Rust HS"
+    if config.HitSoundMode == "Random" and SFX.hitNames and #SFX.hitNames > 0 then
+        name = SFX.hitNames[math.random(1, #SFX.hitNames)]
+    end
+    local id = (SFX.hit and SFX.hit[name]) or SFX.FALLBACK_HIT
+    SFX.play(id, config.HitSoundVolume or 7, config.HitSoundPitch or 1)
 end
+
 function SFX.kill()
     if not config.KillSoundEnabled then return end
-    if tick() - SFX.lastKill < (config.KillSoundCooldown or 0.35) then return end
-    SFX.lastKill = tick()
+    local now = tick()
+    if now - (SFX.lastKill or 0) < (tonumber(config.KillSoundCooldown) or 0.15) then return end
+    SFX.lastKill = now
     local name = config.SelectedKillSound or "OOF"
-    if config.KillSoundMode == "Random" then name = SFX.killNames[math.random(1, #SFX.killNames)] end
-    SFX.play(SFX.kill[name] or SFX.kill["OOF"], config.KillSoundVolume or 3)
+    if config.KillSoundMode == "Random" and SFX.killNames and #SFX.killNames > 0 then
+        name = SFX.killNames[math.random(1, #SFX.killNames)]
+    end
+    local id = (SFX.kill and SFX.kill[name]) or SFX.FALLBACK_KILL
+    SFX.play(id, config.KillSoundVolume or 8, config.KillSoundPitch or 1)
 end
 
 -- AURORA ClientViewModel hit sound hook (Rivals nativo)
@@ -4895,30 +5107,145 @@ task.spawn(function()
     end)
 end)
 
+-- Detección de hit: HealthChanged (fiable) + poll de respaldo
+local function sfxOnDamage(plr, newHp, oldHp)
+    if not plr or plr == LocalPlayer then return end
+    if not (config.HitSoundEnabled or config.KillSoundEnabled) then return end
+    -- no filtrar por team aquí: si le bajaste vida, suena
+    oldHp = tonumber(oldHp) or SFX.hp[plr]
+    newHp = tonumber(newHp)
+    if newHp == nil then return end
+    if oldHp ~= nil and newHp < oldHp - 0.15 then
+        if config.HitSoundEnabled then SFX.hit() end
+        if newHp <= 0 and oldHp > 0 and config.KillSoundEnabled then SFX.kill() end
+    elseif oldHp and oldHp > 0 and newHp <= 0 and config.KillSoundEnabled then
+        SFX.kill()
+    end
+    SFX.hp[plr] = newHp
+end
+
+local function sfxHookHumanoid(plr, hum)
+    if not hum or SFX._humHooked and SFX._humHooked[hum] then return end
+    SFX._humHooked = SFX._humHooked or setmetatable({}, { __mode = "k" })
+    SFX._humHooked[hum] = true
+    SFX.hp[plr] = hum.Health
+    hum.HealthChanged:Connect(function(hp)
+        sfxOnDamage(plr, hp, SFX.hp[plr])
+    end)
+end
+
+local function sfxHookPlayer(plr)
+    if plr == LocalPlayer then return end
+    plr.CharacterAdded:Connect(function(char)
+        task.defer(function()
+            local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3)
+            if hum then sfxHookHumanoid(plr, hum) end
+        end)
+    end)
+    if plr.Character then
+        local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+        if hum then sfxHookHumanoid(plr, hum) end
+    end
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do sfxHookPlayer(plr) end
+Players.PlayerAdded:Connect(sfxHookPlayer)
+Players.PlayerRemoving:Connect(function(p) SFX.hp[p] = nil end)
+
+-- poll de respaldo (por si HealthChanged no dispara en algún caso)
 task.spawn(function()
     while true do
-        task.wait(0.06)
+        task.wait(0.12)
         if not (config.HitSoundEnabled or config.KillSoundEnabled) then continue end
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr == LocalPlayer then continue end
-            if config.TeamCheck and IsSameTeam(plr) then continue end
-            local char = plr.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not hum then SFX.hp[plr] = nil continue end
-            local hp, prev = hum.Health, SFX.hp[plr]
-            if prev ~= nil then
-                if hp < prev - 0.4 then
-                    SFX.hit()
-                    if hp <= 0 and prev > 0 then SFX.kill() end
-                elseif prev > 0 and hp <= 0 then
-                    SFX.kill()
-                end
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if not hum then continue end
+            local prev = SFX.hp[plr]
+            local hp = hum.Health
+            if prev ~= nil and hp ~= prev then
+                sfxOnDamage(plr, hp, prev)
+            else
+                SFX.hp[plr] = hp
             end
-            SFX.hp[plr] = hp
         end
     end
 end)
-Players.PlayerRemoving:Connect(function(p) SFX.hp[p] = nil end)
+
+
+-- PlayerGui damage numbers (Rivals)
+pcall(function()
+    local function watchGui(gui)
+        if not gui then return end
+        gui.DescendantAdded:Connect(function(obj)
+            if not config.HitSoundEnabled then return end
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                local t = tostring(obj.Text or "")
+                if t:match("%d+") and (#t <= 6) then
+                    task.defer(function() SFX.hit() end)
+                end
+            elseif obj:IsA("BillboardGui") or obj:IsA("Frame") then
+                local n = string.lower(obj.Name or "")
+                if n:find("hit") or n:find("dmg") or n:find("damage") or n:find("marker") then
+                    task.defer(function() SFX.hit() end)
+                end
+            end
+        end)
+    end
+    local pg = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
+    if pg then watchGui(pg) end
+    LocalPlayer.ChildAdded:Connect(function(c)
+        if c:IsA("PlayerGui") or c.Name == "PlayerGui" then watchGui(c) end
+    end)
+end)
+
+-- Grief-style: damage billboards también disparan hit sound
+pcall(function()
+    workspace.DescendantAdded:Connect(function(obj)
+        if not config.HitSoundEnabled then return end
+        if not obj:IsA("BillboardGui") then return end
+        local n = string.lower(obj.Name or "")
+        -- billboards de daño típicos
+        if n:find("damage", 1, true) or n:find("hit", 1, true) or n:find("dmg", 1, true) or n:find("number", 1, true) then
+            task.defer(function()
+                if obj and obj.Parent then SFX.hit() end
+            end)
+            return
+        end
+        -- texto numérico de daño
+        task.defer(function()
+            if not obj or not obj.Parent then return end
+            for _, d in ipairs(obj:GetDescendants()) do
+                if d:IsA("TextLabel") or d:IsA("TextButton") then
+                    local t = tostring(d.Text or "")
+                    if t:match("^%-?%d+") or t:match("%d+") then
+                        SFX.hit()
+                        return
+                    end
+                end
+            end
+        end)
+    end)
+end)
+
+-- re-track HP on CharacterAdded (respawn)
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function(char)
+        task.wait(0.3)
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then SFX.hp[plr] = hum.Health end
+    end)
+end)
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then
+        plr.CharacterAdded:Connect(function(char)
+            task.wait(0.3)
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then SFX.hp[plr] = hum.Health end
+        end)
+    end
+end
+
 
 -- ==================== HIT FEEDBACK & TRACERS (LuaHook-style) ====================
 local HitFX = { folder = nil, hmGui = nil, bannerGui = nil, lastBanner = 0 }
@@ -6213,7 +6540,7 @@ function StopTriggerbot() SafeDisconnect("Triggerbot") end
 
 local StartSilentAim, StopSilentAim, StartFOVDraw, silentTarget, silentCFD, loadSilentDeps, updateFOVCircle, fovColor, isVisibleWall
 function InitCombatHooks()
--- ==================== FOV CIRCLES (Silent + Aimbot) ====================
+-- ==================== FOV estilo Grief.cc (ScreenGui + gradient + spin) ====================
 local FOV_COLORS = {
     White = Color3.fromRGB(255, 255, 255),
     Red = Color3.fromRGB(255, 70, 80),
@@ -6222,89 +6549,150 @@ local FOV_COLORS = {
     Magenta = Color3.fromRGB(255, 100, 220),
     Yellow = Color3.fromRGB(255, 230, 80),
     Orange = Color3.fromRGB(255, 160, 50),
+    Purple = Color3.fromRGB(168, 85, 255),
 }
 fovColor = function(name)
+    if typeof(name) == "Color3" then return name end
     return FOV_COLORS[name or "White"] or Color3.fromRGB(255, 255, 255)
+end
+
+local fovScreenGui
+local function ensureFovGui()
+    if fovScreenGui and fovScreenGui.Parent then return fovScreenGui end
+    local parent
+    pcall(function() parent = gethui and gethui() end)
+    if not parent then pcall(function() parent = game:GetService("CoreGui") end) end
+    if not parent then parent = LocalPlayer:FindFirstChild("PlayerGui") end
+    local g = Instance.new("ScreenGui")
+    g.Name = "ShakoFOV_Grief"
+    g.DisplayOrder = 99980
+    g.ResetOnSpawn = false
+    g.IgnoreGuiInset = true
+    g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    g.Parent = parent
+    fovScreenGui = g
+    return g
+end
+
+local function buildGriefFOV(name, cfg)
+    local gui = ensureFovGui()
+    local container = Instance.new("Frame")
+    container.Name = name
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    container.Visible = false
+    container.AnchorPoint = Vector2.new(0.5, 0.5)
+    container.Parent = gui
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.fromScale(1, 1)
+    fill.BackgroundColor3 = Color3.new(1, 1, 1)
+    fill.BackgroundTransparency = cfg.fillTrans or 0.92
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 1
+    fill.Parent = container
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+    local fillgrad = Instance.new("UIGradient")
+    fillgrad.Color = ColorSequence.new(cfg.col1 or Color3.new(1,1,1), cfg.col2 or Color3.new(1,1,1))
+    fillgrad.Parent = fill
+
+    local outline = Instance.new("Frame")
+    outline.Size = UDim2.fromScale(1, 1)
+    outline.BackgroundTransparency = 1
+    outline.BorderSizePixel = 0
+    outline.ZIndex = 2
+    outline.Parent = container
+    Instance.new("UICorner", outline).CornerRadius = UDim.new(1, 0)
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = cfg.thickness or 1.5
+    stroke.Transparency = cfg.outlineTrans or 0.08
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = outline
+    local strokegrad = Instance.new("UIGradient")
+    strokegrad.Color = ColorSequence.new(cfg.col1 or Color3.new(1,1,1), cfg.col2 or Color3.fromRGB(180,180,255))
+    strokegrad.Parent = stroke
+
+    return { container = container, fill = fill, fillgrad = fillgrad, stroke = stroke, strokegrad = strokegrad }
+end
+
+local silentFOVUI = buildGriefFOV("SilentFOV", {
+    fillTrans = 0.92, thickness = 1.5,
+    col1 = Color3.fromRGB(255,255,255), col2 = Color3.fromRGB(180,200,255),
+})
+local aimbotFOVUI = buildGriefFOV("AimbotFOV", {
+    fillTrans = 0.94, thickness = 1.5,
+    col1 = Color3.fromRGB(255,210,80), col2 = Color3.fromRGB(255,120,50),
+})
+
+local function applyFOVUI(ui, enabled, show, radius, colName, doFill, fillTrans, animated, spin)
+    if not ui or not ui.container then return end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local vis = enabled and show
+    ui.container.Visible = vis and true or false
+    if not vis then return end
+    local col = fovColor(colName)
+    local col2 = Color3.new(math.clamp(col.R*0.65+0.2,0,1), math.clamp(col.G*0.65+0.2,0,1), math.clamp(col.B*0.8+0.25,0,1))
+    local r = tonumber(radius) or 120
+    if animated then r = r * (0.97 + 0.03 * math.sin(tick() * 2.2)) end
+    local center = cam.ViewportSize / 2
+    ui.container.Size = UDim2.fromOffset(r * 2, r * 2)
+    ui.container.Position = UDim2.fromOffset(center.X, center.Y)
+    if ui.fill then
+        ui.fill.Visible = doFill ~= false
+        ui.fill.BackgroundTransparency = math.clamp(tonumber(fillTrans) or 0.92, 0.5, 0.98)
+    end
+    local spd = tonumber(config.SilentFOVSpinSpeed) or 1.2
+    if ui.fillgrad then
+        ui.fillgrad.Color = ColorSequence.new(col, col2)
+        if animated or spin then ui.fillgrad.Rotation = (tick() * spd * 90) % 360 end
+    end
+    if ui.strokegrad then
+        ui.strokegrad.Color = ColorSequence.new(col, col2)
+        if spin or animated then ui.strokegrad.Rotation = (tick() * spd * 90 + 90) % 360 end
+    end
+    if ui.stroke then
+        ui.stroke.Thickness = tonumber(config.SilentFOVThickness) or 1.5
+    end
 end
 
 local SilentFOVOutline, SilentFOVFill, SilentFOVGlow
 local AimbotFOVOutline, AimbotFOVFill, AimbotFOVGlow
-local fovAnimT = 0
-pcall(function()
-    local function mkCircle(filled, thick)
-        local c = Drawing.new("Circle")
-        c.Filled = filled
-        c.Thickness = thick or 1
-        c.Visible = false
-        c.ZIndex = 2
-        pcall(function() c.NumSides = 64 end)
-        return c
-    end
-    SilentFOVFill = mkCircle(true, 0)
-    SilentFOVGlow = mkCircle(false, 3)
-    SilentFOVOutline = mkCircle(false, 1)
-    AimbotFOVFill = mkCircle(true, 0)
-    AimbotFOVGlow = mkCircle(false, 3)
-    AimbotFOVOutline = mkCircle(false, 1)
-end)
-
-updateFOVCircle = function(outline, fill, glow, enabled, show, radius, colName, doFill, fillTrans, animated)
-    if not outline then return end
-    local cam = workspace.CurrentCamera
-    if not cam then return end
-    local center = Vector2.new(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5)
-    local col = fovColor(colName)
-    local vis = enabled and show
-    local r = radius or 100
-    if animated then
-        r = r * (0.98 + 0.02 * math.sin(fovAnimT * 1.6))
-    end
-    -- outline limpio
-    outline.Position = center
-    outline.Radius = r
-    outline.Color = col
-    outline.Thickness = 1
-    outline.Transparency = 0.15
-    outline.Visible = vis
-    -- glow suave (anillo exterior)
-    if glow then
-        glow.Position = center
-        glow.Radius = r
-        glow.Color = col
-        glow.Thickness = 2.5
-        glow.Transparency = 0.75
-        glow.Visible = vis
-    end
-    if fill then
-        if vis and doFill then
-            fill.Position = center
-            fill.Radius = r
-            fill.Color = col
-            fill.Transparency = math.clamp(fillTrans or 0.92, 0.5, 0.98)
-            fill.Visible = true
-        else
-            fill.Visible = false
-        end
-    end
-end
+updateFOVCircle = function() end
 
 Connections.FOVDraw = nil
 StartFOVDraw = function()
     SafeDisconnect("FOVDraw")
-    Connections.FOVDraw = RunService.RenderStepped:Connect(function(dt)
-        fovAnimT = fovAnimT + (dt or 0.016)
-        updateFOVCircle(
-            SilentFOVOutline, SilentFOVFill, SilentFOVGlow,
-            config.SilentAimEnabled, config.SilentShowFOV,
-            config.SilentFOV or 300, config.SilentFOVColor or "White",
-            config.SilentFOVFill, config.SilentFOVFillTransparency, config.SilentFOVAnimated
-        )
-        updateFOVCircle(
-            AimbotFOVOutline, AimbotFOVFill, AimbotFOVGlow,
-            config.AimbotEnabled, config.AimbotShowFOV,
-            config.AimbotFOV or 180, config.AimbotFOVColor or config.SilentFOVColor or "White",
-            config.AimbotFOVFill, config.AimbotFOVFillTransparency, config.AimbotFOVAnimated
-        )
+    local fovFrame = 0
+    Connections.FOVDraw = RunService.Heartbeat:Connect(function()
+        -- skip si ninguno visible
+        local sOn = config.SilentAimEnabled and config.SilentShowFOV ~= false
+        local aOn = config.AimbotEnabled and config.AimbotShowFOV ~= false
+        if not sOn and not aOn then
+            if silentFOVUI and silentFOVUI.container then silentFOVUI.container.Visible = false end
+            if aimbotFOVUI and aimbotFOVUI.container then aimbotFOVUI.container.Visible = false end
+            return
+        end
+        fovFrame = fovFrame + 1
+        -- anim/spin: cada frame; si no, cada 2
+        local needFast = (sOn and (config.SilentFOVAnimated or config.SilentFOVSpin)) or (aOn and (config.AimbotFOVAnimated or config.AimbotFOVSpin))
+        if not needFast and fovFrame % 2 == 0 then return end
+        if sOn then
+            applyFOVUI(silentFOVUI, true, true,
+                config.SilentFOV or 300, config.SilentFOVColor or "White",
+                config.SilentFOVFill ~= false, config.SilentFOVFillTransparency,
+                config.SilentFOVAnimated, config.SilentFOVSpin ~= false)
+        else
+            if silentFOVUI and silentFOVUI.container then silentFOVUI.container.Visible = false end
+        end
+        if aOn then
+            applyFOVUI(aimbotFOVUI, true, true,
+                config.AimbotFOV or 180, config.AimbotFOVColor or "Yellow",
+                config.AimbotFOVFill ~= false, config.AimbotFOVFillTransparency,
+                config.AimbotFOVAnimated, config.AimbotFOVSpin == true)
+        else
+            if aimbotFOVUI and aimbotFOVUI.container then aimbotFOVUI.container.Visible = false end
+        end
     end)
 end
 StartFOVDraw()
@@ -6479,23 +6867,74 @@ StartSilentAim = function()
         end
     end)
 
-    -- Enum estricto de disparo (si reescribimos todo, las balas no cuentan)
+    -- SOLO StartShooting de armas de fuego. Nunca granada / throw / melee / ability.
     local shootEnum = nil
     pcall(function()
         if enum then shootEnum = enum:ToEnum("StartShooting") end
     end)
 
-    local function isRealShoot(enumVal)
-        if shootEnum ~= nil and enumVal == shootEnum then return true end
+    local THROW_WORDS = {
+        "grenade", "throw", "cook", "lob", "explode", "detonate", "bomb",
+        "satchel", "flash", "smoke", "molotov", "knife", "melee", "swing",
+        "slash", "punch", "ability", "skill", "utility", "deploy", "place",
+        "emote", "reload", "inspect", "swap", "equip", "unequip",
+    }
+
+    local function isThrowableEnum(enumVal)
         if enumVal == nil then return false end
         local s = string.lower(tostring(enumVal))
-        -- solo disparo real, NO abilities / reload / melee genérico
-        if s:find("startshooting", 1, true) then return true end
-        if s == "shoot" or s == "fire" or s:find("startshoot", 1, true) then return true end
+        for _, w in ipairs(THROW_WORDS) do
+            if s:find(w, 1, true) then return true end
+        end
         return false
     end
 
-    -- Raycast: solo redirige dirección, sin inflar rango de más (servidor rechaza)
+    local function equippedLooksLikeGun()
+        -- si el item equipado parece granada/melee, no silent
+        local name = ""
+        pcall(function()
+            local m = getgenv()._ShakoModules
+            local fc = m and m.FighterController
+            local lf = fc and fc.LocalFighter
+            local item = lf and lf.EquippedItem
+            if item then
+                name = tostring(item.Name or item:Get("Name") or "")
+            end
+        end)
+        if name == "" then
+            pcall(function()
+                local char = LocalPlayer.Character
+                if not char then return end
+                for _, t in ipairs(char:GetChildren()) do
+                    if t:IsA("Tool") then name = t.Name break end
+                end
+            end)
+        end
+        name = string.lower(name)
+        if name == "" then return true end -- desconocido: permitir solo si enum es StartShooting
+        for _, w in ipairs(THROW_WORDS) do
+            if name:find(w, 1, true) then return false end
+        end
+        -- nombres típicos granada rivals
+        if name:find("nade", 1, true) or name:find("frag", 1, true) or name:find("c4", 1, true) then
+            return false
+        end
+        return true
+    end
+
+    local function isRealShoot(enumVal)
+        -- granadas / throws: NUNCA
+        if isThrowableEnum(enumVal) then return false end
+        if not equippedLooksLikeGun() then return false end
+        -- SOLO el enum exacto de disparo de arma
+        if shootEnum ~= nil and enumVal == shootEnum then return true end
+        if enumVal == nil then return false end
+        local s = string.lower(tostring(enumVal))
+        if s:find("startshooting", 1, true) then return true end
+        return false
+    end
+
+    -- Raycast: solo con arma de fuego equipada
     if not silentOldRaycast then
         pcall(function()
             if not GameplayUtility then
@@ -6504,7 +6943,7 @@ StartSilentAim = function()
             if GameplayUtility and GameplayUtility.GetEntitiesFromRaycast then
                 silentOldRaycast = GameplayUtility.GetEntitiesFromRaycast
                 GameplayUtility.GetEntitiesFromRaycast = function(self, envID, params, origin, dir, maxDist, ...)
-                    if config.SilentAimEnabled then
+                    if config.SilentAimEnabled and equippedLooksLikeGun() then
                         local t = silentTarget()
                         if t and origin then
                             local to = t.Position - origin
@@ -6524,16 +6963,12 @@ StartSilentAim = function()
     end
 
     local function patchCamdata(camdata)
+        if not equippedLooksLikeGun() then return camdata end
         local t = silentTarget()
         if not t or not util then return camdata end
         local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        -- origen HRP: el server valida distancia al cuerpo; cámara rompe hits
         local origin = root and root.Position
-        if not origin then
-            local cam = workspace.CurrentCamera
-            origin = cam and cam.CFrame.Position
-        end
-        if not origin then return camdata end
+        if not origin then return camdata end -- sin HRP no tocar (evita romper throws)
         local targetPos = t.Position
         local aimCF = CFrame.lookAt(origin, targetPos)
         local targetCF = t.CFrame
@@ -6544,7 +6979,6 @@ StartSilentAim = function()
             [utf8.char(2)] = t,
             [utf8.char(3)] = util:EncodeCFrame(targetCF:ToObjectSpace(CFrame.new(targetPos))),
         }
-        -- merge: conservar otras keys del camdata original
         if type(camdata) == "table" then
             local out = {}
             for k, v in pairs(camdata) do out[k] = v end
@@ -6562,6 +6996,10 @@ StartSilentAim = function()
     if UseItem and hookfunction and not silentOldFire then
         pcall(function()
             silentOldFire = hookfunction(UseItem.FireServer, newcclosure(function(self, objID, enumVal, camdata, extra, ...)
+                -- granada / throw: pasar tal cual, sin tocar
+                if isThrowableEnum(enumVal) or not equippedLooksLikeGun() then
+                    return silentOldFire(self, objID, enumVal, camdata, extra, ...)
+                end
                 if config.SilentAimEnabled and isRealShoot(enumVal) then
                     camdata = patchCamdata(camdata)
                 end
@@ -6743,16 +7181,12 @@ function GetRagebotTarget()
 end
 
 function AutoEquipMelee()
-    if not config.AutoEquipMelee then return end
-    local char = LocalPlayer.Character
-    if not char or char:FindFirstChildOfClass("Tool") then return end
-    local bag = LocalPlayer:FindFirstChild("Backpack")
-    if not bag then return end
-    local name = string.lower(config.MeleeName or "chainsaw")
-    for _, t in pairs(bag:GetChildren()) do
-        if t:IsA("Tool") and string.lower(t.Name):find(name) then t.Parent = char break end
-    end
+    -- desactivado (pedido del user)
 end
+function DoAutoEquip() end
+function StartAutoEquip() end
+function StopAutoEquip() end
+
 function ApplyFakePosition()
     if not config.FakePosition then return end
     local myHRP = getHRP()
@@ -6775,13 +7209,21 @@ function AntiSafeZone()
 end
 function isSlideKeyDown()
     local key = tostring(config.SlideBoostKey or "C"):upper()
-    if key == "C" or key == "LEFTCONTROL" or key == "LEFTCTRL" or key == "CTRL" then
+    -- C solo = C (NO Control)
+    if key == "C" then
         return UserInputService:IsKeyDown(Enum.KeyCode.C)
-            or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+    end
+    if key == "LEFTCONTROL" or key == "LEFTCTRL" or key == "CTRL" then
+        return UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
             or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+    end
+    if key == "LEFTSHIFT" or key == "SHIFT" then
+        return UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+            or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
     end
     local ok, kc = pcall(function() return Enum.KeyCode[key] end)
     if ok and kc then return UserInputService:IsKeyDown(kc) end
+    -- default seguro: solo C
     return UserInputService:IsKeyDown(Enum.KeyCode.C)
 end
 
@@ -6847,7 +7289,63 @@ function ApplyJumpState()
     end
 end
 
+
+SlideBoostConn = SlideBoostConn or nil
+function StartSlideBoostLoop()
+    if SlideBoostConn then
+        pcall(function() SlideBoostConn:Disconnect() end)
+        SlideBoostConn = nil
+    end
+    SlideBoostConn = RunService.Heartbeat:Connect(function(dt)
+        if not config.SlideBoostEnabled then return end
+        if not isSlideKeyDown() then return end
+        local hum, hrp = getHum(), getHRP()
+        if not hum or not hrp then return end
+        if hum.Health <= 0 then return end
+
+        local mult = tonumber(config.SlideBoostMult) or 2.5
+        local base = tonumber(config.SlideBaseSpeed) or 0
+        -- velocidad objetivo
+        local dir = getMoveDir()
+        if dir.Magnitude < 0.05 then
+            -- si no hay input, usar look horizontal
+            local lv = hrp.CFrame.LookVector
+            dir = Vector3.new(lv.X, 0, lv.Z)
+            if dir.Magnitude < 0.05 then return end
+            dir = dir.Unit
+        end
+
+        local walk = (config.SpeedEnabled and (config.WalkSpeed or 50)) or (hum.WalkSpeed > 1 and hum.WalkSpeed or 16)
+        local targetSpeed = math.max(walk * mult, base > 0 and base or 0)
+        -- clamp razonable anti-kick
+        targetSpeed = math.clamp(targetSpeed, 16, 220)
+
+        local vel = hrp.AssemblyLinearVelocity
+        local target = dir * targetSpeed
+        -- boost horizontal, conservar Y (salto/gravedad)
+        local blend = math.clamp((dt or 0.016) * 14, 0.15, 1)
+        local nx = vel.X + (target.X - vel.X) * blend
+        local nz = vel.Z + (target.Z - vel.Z) * blend
+        hrp.AssemblyLinearVelocity = Vector3.new(nx, vel.Y, nz)
+
+        -- también subir WalkSpeed temporalmente mientras slides
+        pcall(function()
+            if hum.WalkSpeed < targetSpeed * 0.85 then
+                hum.WalkSpeed = targetSpeed * 0.9
+            end
+        end)
+    end)
+end
+
+function StopSlideBoostLoop()
+    if SlideBoostConn then
+        pcall(function() SlideBoostConn:Disconnect() end)
+        SlideBoostConn = nil
+    end
+end
+
 function UpdateMovement()
+
     local hum, hrp = getHum(), getHRP()
     if not hum or not hrp then return end
 
@@ -7215,7 +7713,242 @@ StopRagebot = function()
     SafeDisconnect("Ragebot")
     RagebotTarget = nil
     pcall(function() RunService:UnbindFromRenderStep("__as_rage_restore") end)
+    pcall(function() if RageInd then RageInd.hide() end end)
 end
+
+-- ==================== RAGE INDICATOR (Grief.cc style) ====================
+-- Círculo en el target + snapline + texto "ragebot: attacking / idle"
+local RageInd = {
+    killStart = nil,
+    lastTarget = nil,
+}
+do
+    local ind, indOut, snap, snapOut, line1, line2
+    pcall(function()
+        ind = Drawing.new("Circle")
+        ind.Thickness = 1.5
+        ind.NumSides = 36
+        ind.Filled = false
+        ind.Transparency = 1
+        ind.Visible = false
+        ind.Radius = 12
+        ind.Color = Color3.fromRGB(255, 50, 50)
+
+        indOut = Drawing.new("Circle")
+        indOut.Thickness = 4
+        indOut.NumSides = 36
+        indOut.Filled = false
+        indOut.Transparency = 1
+        indOut.Visible = false
+        indOut.Radius = 12
+        indOut.Color = Color3.fromRGB(0, 0, 0)
+
+        snap = Drawing.new("Line")
+        snap.Visible = false
+        snap.Thickness = 1.5
+        snap.Transparency = 1
+        snap.Color = Color3.fromRGB(0, 186, 255)
+
+        snapOut = Drawing.new("Line")
+        snapOut.Visible = false
+        snapOut.Thickness = 3.5
+        snapOut.Transparency = 1
+        snapOut.Color = Color3.fromRGB(0, 0, 0)
+
+        local function mkTxt()
+            local t = Drawing.new("Text")
+            t.Size = 14
+            t.Font = 2
+            t.Outline = true
+            t.Center = true
+            t.Visible = false
+            t.Color = Color3.fromRGB(235, 235, 235)
+            pcall(function() t.OutlineColor = Color3.fromRGB(0, 0, 0) end)
+            return t
+        end
+        line1 = mkTxt()
+        line2 = mkTxt()
+    end)
+
+    local COL = {
+        Red = Color3.fromRGB(255, 50, 50),
+        Purple = Color3.fromRGB(180, 0, 255),
+        Cyan = Color3.fromRGB(0, 186, 255),
+        White = Color3.fromRGB(235, 235, 235),
+        Green = Color3.fromRGB(80, 255, 140),
+    }
+
+    function RageInd.hide()
+        pcall(function()
+            if ind then ind.Visible = false end
+            if indOut then indOut.Visible = false end
+            if snap then snap.Visible = false end
+            if snapOut then snapOut.Visible = false end
+            if line1 then line1.Visible = false end
+            if line2 then line2.Visible = false end
+        end)
+        RageInd.killStart = nil
+        RageInd.lastTarget = nil
+    end
+
+    local function statusText(target)
+        if not config.RagebotEnabled then
+            return "ragebot: off", ""
+        end
+        if not target or not target.Character then
+            RageInd.killStart = nil
+            return "ragebot: idle", ""
+        end
+        local hum = target.Character:FindFirstChildOfClass("Humanoid")
+        local hp = hum and hum.Health or 0
+        local name = target.DisplayName or target.Name or "target"
+        if hp <= 0 then
+            RageInd.killStart = nil
+            return "ragebot: idle", ""
+        end
+        -- attacking
+        if not RageInd.killStart or RageInd.lastTarget ~= target then
+            RageInd.killStart = tick()
+            RageInd.lastTarget = target
+        end
+        local elapsed = tick() - (RageInd.killStart or tick())
+        local main = string.format("ragebot : attacking (%s) · %.1fs", name, elapsed)
+        local detail = string.format("%.0f hp", hp)
+        if config.VoidRage then
+            detail = detail .. " · void"
+        end
+        if config.RageDesync then
+            detail = detail .. " · desync"
+        end
+        return main, detail
+    end
+
+    function RageInd.update()
+        if not ind then return end
+        local showInd = config.RageIndicatorEnabled ~= false
+        local showStatus = config.RageStatusEnabled ~= false
+        local showSnap = config.RageIndicatorSnapline ~= false
+        if not config.RagebotEnabled then
+            RageInd.hide()
+            return
+        end
+        if not showInd and not showStatus and not showSnap then
+            RageInd.hide()
+            return
+        end
+
+        local cam = workspace.CurrentCamera
+        if not cam then RageInd.hide() return end
+
+        local target = RagebotTarget
+        local part = nil
+        if target and target.Character then
+            part = target.Character:FindFirstChild("Head")
+                or target.Character:FindFirstChild("HumanoidRootPart")
+        end
+
+        -- status text (siempre visible si status on)
+        if showStatus and line1 then
+            local main, detail = statusText(target)
+            local anchor
+            if config.RageStatusMode == "crosshair" then
+                local m = UserInputService:GetMouseLocation()
+                anchor = Vector2.new(m.X, m.Y + (config.RageStatusOffsetY or 40))
+            else
+                local vs = cam.ViewportSize
+                anchor = Vector2.new(vs.X * 0.5, vs.Y * 0.5 + (config.RageStatusOffsetY or 48))
+            end
+            line1.Text = main
+            line1.Position = anchor
+            line1.Visible = true
+            if detail ~= "" and line2 then
+                line2.Text = detail
+                line2.Position = anchor + Vector2.new(0, 16)
+                line2.Visible = true
+            elseif line2 then
+                line2.Visible = false
+            end
+        else
+            if line1 then line1.Visible = false end
+            if line2 then line2.Visible = false end
+        end
+
+        if not part then
+            if ind then ind.Visible = false end
+            if indOut then indOut.Visible = false end
+            if snap then snap.Visible = false end
+            if snapOut then snapOut.Visible = false end
+            return
+        end
+
+        local sp, onScreen = cam:WorldToViewportPoint(part.Position)
+        if not onScreen or sp.Z <= 0 then
+            if ind then ind.Visible = false end
+            if indOut then indOut.Visible = false end
+            if snap then snap.Visible = false end
+            if snapOut then snapOut.Visible = false end
+            return
+        end
+        local pos = Vector2.new(sp.X, sp.Y)
+        local colName = config.RageIndicatorColor or "Red"
+        local col = COL[colName] or COL.Red
+        -- purple si desync activo
+        if config.RageDesync then
+            col = COL.Purple
+        end
+
+        if showInd then
+            -- pulse radius
+            local pulse = 11 + 2 * math.sin(tick() * 6)
+            indOut.Position = pos
+            indOut.Radius = pulse
+            indOut.Visible = true
+            ind.Position = pos
+            ind.Radius = pulse
+            ind.Color = col
+            ind.Visible = true
+        else
+            ind.Visible = false
+            indOut.Visible = false
+        end
+
+        if showSnap then
+            local from
+            if config.RageStatusMode == "crosshair" then
+                local m = UserInputService:GetMouseLocation()
+                from = Vector2.new(m.X, m.Y)
+            else
+                local vs = cam.ViewportSize
+                from = Vector2.new(vs.X * 0.5, vs.Y * 0.5)
+            end
+            snapOut.From = from
+            snapOut.To = pos
+            snapOut.Visible = true
+            snap.From = from
+            snap.To = pos
+            snap.Color = col
+            snap.Visible = true
+        else
+            snap.Visible = false
+            snapOut.Visible = false
+        end
+    end
+end
+getgenv().RageInd = RageInd
+
+-- loop del indicator (barato)
+if not Connections then Connections = {} end
+pcall(function()
+    if Connections.RageInd then Connections.RageInd:Disconnect() end
+    local riN = 0
+    Connections.RageInd = RunService.Heartbeat:Connect(function()
+        if not config.RagebotEnabled and not config.RageIndicatorEnabled then return end
+        riN = riN + 1
+        if riN % 2 == 1 then return end -- ~30fps
+        pcall(function() if RageInd and RageInd.update then RageInd.update() end end)
+    end)
+end)
+
 
 StartAutoClick = function()
     SafeDisconnect("AutoClick")
@@ -9324,37 +10057,85 @@ end
 
 function pushBulletTracer(fromPos, toPos)
     if not config.BulletTracerEnabled then return end
-    if #BulletTracers > 12 then
+    if not fromPos or not toPos then return end
+    BulletTracers = BulletTracers or {}
+    while #BulletTracers >= 16 do
         local old = table.remove(BulletTracers, 1)
-        if old and old.line then pcall(function() old.line:Remove() end) end
+        if old then
+            pcall(function() if old.beam then old.beam:Destroy() end end)
+            pcall(function() if old.a0 then old.a0:Destroy() end end)
+            pcall(function() if old.a1 then old.a1:Destroy() end end)
+            pcall(function() if old.light then old.light:Destroy() end end)
+            pcall(function() if old.line and old.line.Remove then old.line:Remove() end end)
+        end
     end
-    local cam = workspace.CurrentCamera
-    if not cam then return end
-    local s1 = cam:WorldToViewportPoint(fromPos)
-    local s2 = cam:WorldToViewportPoint(toPos)
-    local line = Drawing.new("Line")
-    local colName = config.BulletTracerColor or "Cyan"
-    line.Color = (ESP_COLOR_MAP and ESP_COLOR_MAP[colName]) or Color3.fromRGB(0, 255, 255)
-    line.Thickness = config.BulletTracerThickness or 1.8
-    line.From = Vector2.new(s1.X, s1.Y)
-    line.To = Vector2.new(s2.X, s2.Y)
-    line.Visible = true
-    table.insert(BulletTracers, {line = line, die = tick() + (config.BulletTracerDuration or 1.2)})
+    local col = (fovColor and fovColor(config.BulletTracerColor or "Cyan")) or Color3.fromRGB(80,220,255)
+    local style = tostring(config.BulletTracerStyle or "Line")
+    local size = tonumber(config.BulletTracerThickness) or 1.5
+    local glow = tonumber(config.BulletTracerGlow) or 0.45
+    local dur = tonumber(config.BulletTracerDuration) or 2.5
+    local fade = tonumber(config.BulletTracerFade) or 0.5
+    local a0 = Instance.new("Attachment"); a0.WorldPosition = fromPos; a0.Parent = workspace.Terrain
+    local a1 = Instance.new("Attachment"); a1.WorldPosition = toPos; a1.Parent = workspace.Terrain
+    local beam = Instance.new("Beam")
+    beam.Attachment0, beam.Attachment1 = a0, a1
+    beam.Color = ColorSequence.new(col)
+    local bw = (style == "Laser" and 0.02) or (style == "Glow" and 0.18) or 0.05
+    beam.Width0 = bw * size
+    beam.Width1 = bw * size * (style == "Glow" and 1.35 or 0.65)
+    beam.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(0.75, 0.12),
+        NumberSequenceKeypoint.new(1, 0.5),
+    })
+    beam.FaceCamera = true
+    beam.LightEmission = glow
+    beam.LightInfluence = math.clamp(1 - glow, 0, 1)
+    beam.Parent = workspace.Terrain
+    local light
+    if glow > 0.25 then
+        light = Instance.new("PointLight")
+        light.Brightness = glow * 2
+        light.Range = 8 * size
+        light.Color = col
+        light.Parent = a1
+    end
+    table.insert(BulletTracers, {
+        beam = beam, a0 = a0, a1 = a1, light = light,
+        created = tick(), die = tick() + dur, fade = fade, from = fromPos, to = toPos,
+    })
 end
 
 function updateBulletTracers()
+    if not BulletTracers then return end
     local now = tick()
     for i = #BulletTracers, 1, -1 do
         local t = BulletTracers[i]
         if now >= t.die then
-            pcall(function() t.line:Remove() end)
+            pcall(function() if t.beam then t.beam:Destroy() end end)
+            pcall(function() if t.a0 then t.a0:Destroy() end end)
+            pcall(function() if t.a1 then t.a1:Destroy() end end)
+            pcall(function() if t.light then t.light:Destroy() end end)
             table.remove(BulletTracers, i)
         else
-            local life = (t.die - now) / math.max(config.BulletTracerDuration or 1.2, 0.01)
-            t.line.Transparency = 1 - math.clamp(life, 0, 1)
+            local life = t.die - now
+            local fadeT = t.fade or 0.5
+            if life < fadeT and t.beam then
+                local fp = 1 - (life / fadeT)
+                pcall(function()
+                    t.beam.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, fp),
+                        NumberSequenceKeypoint.new(0.8, math.min(1, fp + 0.15)),
+                        NumberSequenceKeypoint.new(1, 1),
+                    })
+                end)
+            end
+            if t.a0 and t.from then pcall(function() t.a0.WorldPosition = t.from end) end
+            if t.a1 and t.to then pcall(function() t.a1.WorldPosition = t.to end) end
         end
     end
 end
+
 
 
 
@@ -13105,8 +13886,19 @@ end)()
 -- Wrappers para shako UI
 function StartWeather()
     config.WeatherEnabled = true
-    Config.Weather = true
-    pcall(function() Weather.enableWeather() end)
+    config.Weather = true
+    pcall(function() if Config then Config.Weather = true end end)
+    -- rebuild completo (map load destruye _wx)
+    pcall(function()
+        if Weather and Weather.disableWeather then Weather.disableWeather() end
+    end)
+    task.defer(function()
+        pcall(function() Weather.enableWeather() end)
+        if config.SkyboxPreset and config.SkyboxPreset ~= "Off" then
+            pcall(function() if Weather and Weather.setSkybox then Weather.setSkybox(config.SkyboxPreset) end end)
+        end
+        if skyboxData and skyboxData.enabled then pcall(ApplySkybox) end
+    end)
     if not getgenv()._ShakoQuiet then Notify("Weather", "ON · " .. tostring(config.WeatherType or "Rain")) end
 end
 
@@ -13165,32 +13957,60 @@ function StopWeather()
     end
 end
 
--- Emotes table (IDs reales + los 4 que pediste)
+-- ==================== EMOTES (siempre loop + keep playing) ====================
 EMOTES = {
+    -- IDs públicos que suelen cargar en cliente
     ["Floss"] = "5917459365",
-    ["Orange Justice"] = "3931998378",
+    ["Orange Justice"] = "3934987096",
     ["Take The L"] = "3333499508",
-    ["Default Dance"] = "3360686498",
-    ["Wave"] = "507770239",
-    ["Cheer"] = "507770677",
-    ["Laugh"] = "507770818",
-    ["Point"] = "507770453",
-    -- tus IDs (HVH / custom)
-    ["Anim A"] = "86329197824055",
-    ["Anim B"] = "91729309021707",
-    ["Anim C"] = "133811691098518",
-    ["Anim D"] = "133375187065498",
-    -- HVH-ish classics que suelen cargar en client
-    ["Shuffle"] = "434870490",
-    ["Interstellar"] = "891572633",
-    ["Gangnam"] = "5918726674",
+    ["Default Dance"] = "4265725525",
+    ["Electro Shuffle"] = "3489178132",
     ["Fresh"] = "3183986796",
+    ["Robot"] = "4555808220",
+    ["Hype"] = "3360689775",
+    ["Dab"] = "3333499505",
+    ["Laugh"] = "3333430984",
+    ["Wave"] = "507770239",
+    ["Point"] = "507770453",
+    ["Cheer"] = "507770677",
+    ["Gangnam"] = "5918726674",
+    ["Shuffle"] = "434870490",
+    ["Breakdance"] = "5918726674",
+    ["Twist"] = "3333492741",
+    ["Zombie"] = "3489174152",
+    -- TUS IDs (cargados vía GetObjects / InsertService)
+    ["Custom A"] = "86329197824055",
+    ["Custom B"] = "91729309021707",
+    ["Custom C"] = "133811691098518",
+    ["Custom D"] = "133375187065498",
+    -- nuevas
+    ["Custom E"] = "130601328561804",
+    ["Custom F"] = "129571341119376",
+    ["Custom G"] = "79902725961872",
+    ["Custom H"] = "119060168059843",
+    ["Custom I"] = "82995540773684",
+    ["Custom J"] = "78224683906191",
+    ["Custom K"] = "73562814360939",
+    ["Custom L"] = "88425531063616",
+    -- aliases por id
+    ["86329197824055"] = "86329197824055",
+    ["91729309021707"] = "91729309021707",
+    ["133811691098518"] = "133811691098518",
+    ["133375187065498"] = "133375187065498",
+    ["130601328561804"] = "130601328561804",
+    ["129571341119376"] = "129571341119376",
+    ["79902725961872"] = "79902725961872",
+    ["119060168059843"] = "119060168059843",
+    ["82995540773684"] = "82995540773684",
+    ["78224683906191"] = "78224683906191",
+    ["73562814360939"] = "73562814360939",
+    ["88425531063616"] = "88425531063616",
 }
-
 
 local currentAnimTrack = nil
 local emoteKeepConn = nil
 local lastEmoteId = nil
+local emoteLastRestart = 0
 
 function StopEmote()
     if emoteKeepConn then
@@ -13198,117 +14018,274 @@ function StopEmote()
         emoteKeepConn = nil
     end
     if currentAnimTrack then
-        pcall(function() currentAnimTrack:Stop(0.15) end)
+        pcall(function() currentAnimTrack:Stop(0.1) end)
         currentAnimTrack = nil
     end
     config.EmoteEnabled = false
 end
 
-local function loadTrack(animator, id)
-    local anim = Instance.new("Animation")
-    anim.AnimationId = "rbxassetid://" .. tostring(id)
-    local ok, track = pcall(function() return animator:LoadAnimation(anim) end)
-    if ok and track then return track end
-    -- fallback Humanoid:LoadAnimation
-    local hum = animator.Parent
-    if hum and hum:IsA("Humanoid") then
-        ok, track = pcall(function() return hum:LoadAnimation(anim) end)
-        if ok and track then return track end
-    end
-    return nil
-end
-
-function PlayEmote(animId, speed)
-    local char = LocalPlayer.Character
-    if not char then
-        Notify("Emote", "Sin character")
-        return
-    end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-
-    -- stop previous without clearing keep flag logic
-    if emoteKeepConn then
-        pcall(function() emoteKeepConn:Disconnect() end)
-        emoteKeepConn = nil
-    end
-    if currentAnimTrack then
-        pcall(function() currentAnimTrack:Stop(0.05) end)
-        currentAnimTrack = nil
-    end
-
+local function getAnimator(hum)
+    if not hum then return nil end
     local animator = hum:FindFirstChildOfClass("Animator")
     if not animator then
         animator = Instance.new("Animator")
         animator.Parent = hum
     end
+    return animator
+end
+
+-- Cache de Animation ya resueltas por id
+local _animCache = {}
+
+local function resolveAnimationObject(id)
+    id = tostring(id or ""):gsub("%D", "")
+    if id == "" then return nil end
+    if _animCache[id] and _animCache[id].Parent ~= nil then
+        return _animCache[id]
+    end
+
+    local function fromInstance(inst)
+        if not inst then return nil end
+        if inst:IsA("Animation") then return inst end
+        if inst:IsA("KeyframeSequence") then
+            -- convertir via AnimationClipProvider si existe
+            local ok, animId = pcall(function()
+                local ACP = game:GetService("AnimationClipProvider")
+                return ACP:RegisterAnimationClip(inst)
+            end)
+            if ok and animId then
+                local a = Instance.new("Animation")
+                a.AnimationId = animId
+                return a
+            end
+        end
+        -- buscar Animation adentro (asset de catálogo / package)
+        for _, d in ipairs(inst:GetDescendants()) do
+            if d:IsA("Animation") then return d end
+        end
+        if inst:IsA("Model") or inst:IsA("Folder") then
+            local a = inst:FindFirstChildWhichIsA("Animation", true)
+            if a then return a end
+        end
+        return nil
+    end
+
+    -- 1) game:GetObjects (exploit) — el más fiable para IDs de catálogo
+    local ok, objs = pcall(function()
+        return game:GetObjects("rbxassetid://" .. id)
+    end)
+    if ok and type(objs) == "table" then
+        for _, o in ipairs(objs) do
+            local a = fromInstance(o)
+            if a then
+                _animCache[id] = a
+                return a
+            end
+        end
+    end
+
+    -- 2) InsertService:LoadAsset
+    pcall(function()
+        local IS = game:GetService("InsertService")
+        local model = IS:LoadAsset(tonumber(id))
+        if model then
+            local a = fromInstance(model)
+            if a then
+                _animCache[id] = a
+                model.Parent = nil
+                return a
+            end
+            pcall(function() model:Destroy() end)
+        end
+    end)
+    if _animCache[id] then return _animCache[id] end
+
+    -- 3) Animation "manual" con varios formatos de URL
+    for _, uri in ipairs({
+        "rbxassetid://" .. id,
+        "http://www.roblox.com/asset/?id=" .. id,
+        "https://www.roblox.com/asset/?id=" .. id,
+    }) do
+        local a = Instance.new("Animation")
+        a.Name = "ShakoEmote_" .. id
+        a.AnimationId = uri
+        _animCache[id] = a
+        return a
+    end
+    return nil
+end
+
+local function loadTrack(animator, id)
+    id = tostring(id or ""):gsub("%D", "")
+    if id == "" or not animator then return nil end
+
+    local animObj = resolveAnimationObject(id)
+    if animObj and animObj:IsA("Animation") then
+        local ok, track = pcall(function() return animator:LoadAnimation(animObj) end)
+        if ok and track then return track end
+        local hum = animator.Parent
+        if hum and hum:IsA("Humanoid") then
+            ok, track = pcall(function() return hum:LoadAnimation(animObj) end)
+            if ok and track then return track end
+        end
+    end
+
+    -- último recurso: Animation nueva directa
+    for _, uri in ipairs({
+        "rbxassetid://" .. id,
+        "http://www.roblox.com/asset/?id=" .. id,
+    }) do
+        local anim = Instance.new("Animation")
+        anim.AnimationId = uri
+        local ok, track = pcall(function() return animator:LoadAnimation(anim) end)
+        if ok and track then return track end
+        local hum = animator.Parent
+        if hum and hum:IsA("Humanoid") then
+            ok, track = pcall(function() return hum:LoadAnimation(anim) end)
+            if ok and track then return track end
+        end
+    end
+    return nil
+end
+
+local function stopCompeting(animator, keep)
+    pcall(function()
+        for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+            if t ~= keep then
+                local pr = t.Priority
+                -- no matar Core de muerte; sí Movement/Action bajos
+                if pr == Enum.AnimationPriority.Movement
+                    or pr == Enum.AnimationPriority.Idle
+                    or pr == Enum.AnimationPriority.Action
+                    or pr == Enum.AnimationPriority.Action2
+                    or pr == Enum.AnimationPriority.Action3 then
+                    pcall(function() t:Stop(0) end)
+                end
+            end
+        end
+    end)
+end
+
+function PlayEmote(animId, speed)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    local animator = getAnimator(hum)
+    if not animator then return end
 
     local id = tostring(animId or config.EmoteId or ""):gsub("%D", "")
     if id == "" and config.EmoteName and EMOTES[config.EmoteName] then
         id = tostring(EMOTES[config.EmoteName]):gsub("%D", "")
     end
     if id == "" then id = "5917459365" end
+
     lastEmoteId = id
     config.EmoteId = id
     config.EmoteEnabled = true
+    config.EmoteLoop = true
+    config.EmoteKeepPlaying = true
+
+    if currentAnimTrack then
+        pcall(function() currentAnimTrack:Stop(0) end)
+        currentAnimTrack = nil
+    end
 
     local track = loadTrack(animator, id)
     if not track then
-        Notify("Emote", "ID no carga: " .. id)
+        -- reintento lento (GetObjects a veces tarda)
+        task.wait(0.15)
+        track = loadTrack(animator, id)
+    end
+    if not track then
+        Notify("Emote", "ID no cargó: " .. id .. " (¿privado/inválido?)")
         return
     end
+    Notify("Emote", "ON · " .. id)
 
-    -- prioridad alta para que no la mate el Animate de Rivals al caminar
     pcall(function()
-        local prio = config.EmotePriority or "Action4"
-        track.Priority = Enum.AnimationPriority[prio] or Enum.AnimationPriority.Action4
+        track.Priority = Enum.AnimationPriority.Action4
+        track.Looped = true
+        track:Play(0.05, 1, tonumber(speed) or tonumber(config.EmoteSpeed) or 1)
+        track:AdjustWeight(1, 0)
     end)
-    track.Looped = config.EmoteLoop ~= false
-    local spd = speed or config.EmoteSpeed or 1
-    pcall(function() track:Play(0.1, 1, spd) end)
     currentAnimTrack = track
+    stopCompeting(animator, track)
 
-    -- re-aplicar mientras camines (Rivals pisa anims)
-    if config.EmoteKeepPlaying ~= false then
-        emoteKeepConn = RunService.Heartbeat:Connect(function()
-            if not config.EmoteEnabled then return end
-            local c = LocalPlayer.Character
-            local h = c and c:FindFirstChildOfClass("Humanoid")
-            if not h then return end
-            local a = h:FindFirstChildOfClass("Animator")
-            if not a then return end
-            local t = currentAnimTrack
-            if not t or t.IsPlaying ~= true then
-                local nt = loadTrack(a, lastEmoteId or config.EmoteId)
-                if nt then
-                    pcall(function()
-                        nt.Priority = Enum.AnimationPriority.Action4
-                        nt.Looped = config.EmoteLoop ~= false
-                        nt:Play(0.05, 1, config.EmoteSpeed or 1)
-                    end)
-                    currentAnimTrack = nt
-                end
-            else
-                -- refuerza prioridad
-                pcall(function()
-                    t.Priority = Enum.AnimationPriority.Action4
-                    if config.EmoteSpeed then t:AdjustSpeed(config.EmoteSpeed) end
-                end)
-            end
-        end)
+    -- loop keep-alive (Rivals pisa anims al moverse)
+    if emoteKeepConn then
+        pcall(function() emoteKeepConn:Disconnect() end)
+        emoteKeepConn = nil
     end
-
-    pcall(function()
-        local RS = game:GetService("ReplicatedStorage")
-        local remote = RS.Remotes.Replication.Fighter:FindFirstChild("UseEmoteByName")
-        if remote and config.EmoteName and config.EmoteName ~= "Custom" then
-            remote:FireServer(config.EmoteName)
+    emoteKeepConn = RunService.Heartbeat:Connect(function()
+        if not config.EmoteEnabled then return end
+        local now = tick()
+        if now - emoteLastRestart < 0.12 then return end -- throttle
+        local c = LocalPlayer.Character
+        local h = c and c:FindFirstChildOfClass("Humanoid")
+        if not h or h.Health <= 0 then return end
+        local a = getAnimator(h)
+        if not a then return end
+        local t = currentAnimTrack
+        local need = (not t) or (t.IsPlaying ~= true)
+        -- también si el weight bajó mucho
+        if t and t.IsPlaying then
+            local w = 1
+            pcall(function() w = t.WeightTarget or 1 end)
+            if w < 0.3 then need = true end
+        end
+        if need then
+            emoteLastRestart = now
+            local nt = loadTrack(a, lastEmoteId or config.EmoteId or "5917459365")
+            if nt then
+                pcall(function()
+                    nt.Priority = Enum.AnimationPriority.Action4
+                    nt.Looped = true
+                    nt:Play(0, 1, tonumber(config.EmoteSpeed) or 1)
+                    nt:AdjustWeight(1, 0)
+                end)
+                currentAnimTrack = nt
+                stopCompeting(a, nt)
+            end
+        else
+            pcall(function()
+                t.Priority = Enum.AnimationPriority.Action4
+                t.Looped = true
+                local spd = tonumber(config.EmoteSpeed) or 1
+                t:AdjustSpeed(spd)
+                t:AdjustWeight(1, 0)
+                -- forzar speed si el juego lo resetea
+                if math.abs((t.Speed or 1) - spd) > 0.05 then
+                    t:Play(0, 1, spd)
+                end
+            end)
+            if now - emoteLastRestart > 0.5 then
+                emoteLastRestart = now
+                stopCompeting(a, t)
+            end
         end
     end)
-    Notify("Emote", "Playing " .. id)
+
+    -- emote remoto del juego (si existe)
+    pcall(function()
+        local remote = game:GetService("ReplicatedStorage").Remotes.Replication.Fighter:FindFirstChild("UseEmoteByName")
+        if remote and config.EmoteName and config.EmoteName ~= "Custom" then
+            remote:FireServer(tostring(config.EmoteName))
+        end
+    end)
 end
 
-
+-- auto resume al respawn si estaba activo
+pcall(function()
+    LocalPlayer.CharacterAdded:Connect(function()
+        if not config.EmoteEnabled then return end
+        task.delay(0.6, function()
+            if config.EmoteEnabled then
+                PlayEmote(lastEmoteId or config.EmoteId, config.EmoteSpeed)
+            end
+        end)
+    end)
+end)
 
 local _visAcc = 0
 
@@ -13592,6 +14569,20 @@ function Cfg.Save(name, overwrite)
         return false
     end
 
+    -- sincronizar skyboxData → config antes de guardar
+    pcall(function()
+        if skyboxData then
+            config.SkyboxEnabled = skyboxData.enabled and true or false
+            config.SkyboxName = tostring(skyboxData.selected or "None")
+            config.SkyRotate = skyboxData.auto_rotate and true or false
+            if skyboxData.enabled and skyboxData.selected and skyboxData.selected ~= "None" then
+                if not config.SkyboxPreset or config.SkyboxPreset == "Off" then
+                    -- no pisar preset de Weather si ya hay
+                end
+            end
+        end
+        config.Weather = config.WeatherEnabled and true or false
+    end)
     local t = {}
     -- todo lo serializable de config
     for k, v in pairs(config) do
@@ -13999,6 +14990,81 @@ function Cfg.ApplyLoadedState()
         safe(function()
             if config.StretchedRes then ApplyStretchedRes() end
         end)
+        -- ===== VISUALES (weather / sky / fullbright / FF) =====
+        safe(function()
+            -- sync skyboxData desde config guardada
+            if skyboxData then
+                local preset = config.SkyboxPreset
+                if type(preset) == "string" and preset ~= "" and preset ~= "Off" and preset ~= "None" then
+                    skyboxData.enabled = true
+                    skyboxData.selected = preset
+                elseif config.SkyboxEnabled then
+                    skyboxData.enabled = true
+                    if type(config.SkyboxName) == "string" and config.SkyboxName ~= "" then
+                        skyboxData.selected = config.SkyboxName
+                    end
+                end
+                if config.SkyRotate ~= nil then skyboxData.auto_rotate = config.SkyRotate and true or false end
+            end
+            if skyboxData and skyboxData.enabled then
+                pcall(function() ApplySkybox(true) end)
+                if skyboxData.auto_rotate and getgenv()._ShakoStartSkyRotate then
+                    pcall(function() getgenv()._ShakoStartSkyRotate(true) end)
+                end
+            end
+        end)
+        safe(function()
+            if config.WeatherEnabled or config.Weather then
+                pcall(function() if Config then Config.Weather = true end end)
+                pcall(function() if Config then Config.WeatherType = config.WeatherType or "Rain" end end)
+                if Weather then
+                    if Weather.setType and config.WeatherType then pcall(Weather.setType, config.WeatherType) end
+                    if Weather.setIntensity and config.WeatherIntensity then pcall(Weather.setIntensity, config.WeatherIntensity) end
+                    if Weather.setSoundVolume and config.WeatherSoundVolume then pcall(Weather.setSoundVolume, config.WeatherSoundVolume) end
+                end
+                if StartWeather then StartWeather()
+                elseif Weather and Weather.enableWeather then Weather.enableWeather() end
+            else
+                if StopWeather then StopWeather()
+                elseif Weather and Weather.disableWeather then Weather.disableWeather() end
+            end
+        end)
+        safe(function()
+            if config.SkyboxPreset and config.SkyboxPreset ~= "Off" and Weather and Weather.setSkybox then
+                pcall(function() Weather.setSkybox(config.SkyboxPreset) end)
+            end
+        end)
+        safe(function()
+            if config.Fullbright then
+                pcall(function()
+                    if StartFullbright then StartFullbright()
+                    else
+                        Lighting.Brightness = 2
+                        Lighting.ClockTime = 14
+                        Lighting.FogEnd = 100000
+                        Lighting.GlobalShadows = false
+                        Lighting.OutdoorAmbient = Color3.fromRGB(255,255,255)
+                    end
+                end)
+            end
+        end)
+        safe(function()
+            if config.ForceFieldVisual and ApplyForceField and LocalPlayer.Character then
+                ApplyForceField(LocalPlayer.Character)
+            end
+        end)
+        safe(function()
+            if config.SilentAimEnabled and StartSilentAim then StartSilentAim() end
+            if config.SilentShowFOV ~= false and StartFOVDraw then StartFOVDraw() end
+        end)
+        safe(function()
+            if config.ThirdPerson or config.ThirdPersonEnabled then
+                if StartThirdPerson then StartThirdPerson() end
+            end
+        end)
+        safe(function()
+            if config.CrosshairEnabled and StartCrosshair then StartCrosshair() end
+        end)
         safe(function()
             if config.UECounterEnabled or config.AntiUnnamed then
                 StartUECounter()
@@ -14207,6 +15273,53 @@ function Cfg.Load(name)
         end)
     end)
     Cfg.ApplyLoadedState()
+    -- segunda pasada visual (weather/sky a veces no pegan a la 1ª)
+    task.defer(function()
+        task.wait(1.0)
+        pcall(function()
+            if config.WeatherEnabled or config.Weather then
+                pcall(function() if Config then Config.Weather = true end end)
+                if Weather and Weather.setType and config.WeatherType then
+                    pcall(Weather.setType, config.WeatherType)
+                end
+                if StartWeather then StartWeather()
+                elseif Weather and Weather.enableWeather then Weather.enableWeather() end
+            end
+            if config.SkyboxPreset and config.SkyboxPreset ~= "Off" and Weather and Weather.setSkybox then
+                pcall(Weather.setSkybox, config.SkyboxPreset)
+            end
+            if skyboxData then
+                if config.SkyboxEnabled or (config.SkyboxPreset and config.SkyboxPreset ~= "Off") then
+                    skyboxData.enabled = true
+                    if config.SkyboxName and config.SkyboxName ~= "" then
+                        skyboxData.selected = config.SkyboxName
+                    elseif config.SkyboxPreset and config.SkyboxPreset ~= "Off" then
+                        -- intentar mapear preset weather a aurora si existe
+                        if SkyboxPresets and SkyboxPresets[config.SkyboxPreset] then
+                            skyboxData.selected = config.SkyboxPreset
+                        end
+                    end
+                    if ApplySkybox then ApplySkybox(true) end
+                end
+            end
+            if config.Fullbright and Lighting then
+                Lighting.Brightness = 2
+                Lighting.FogEnd = 1e5
+                Lighting.GlobalShadows = false
+            end
+            if config.ForceFieldVisual and ApplyForceField and LocalPlayer.Character then
+                ApplyForceField(LocalPlayer.Character)
+            end
+        end)
+        task.wait(2.0)
+        pcall(function()
+            if (config.WeatherEnabled or config.Weather) and Weather and Weather.enableWeather then
+                local f = workspace:FindFirstChild("_wx")
+                if not f then Weather.enableWeather() end
+            end
+            if skyboxData and skyboxData.enabled and ApplySkybox then ApplySkybox(true) end
+        end)
+    end)
     Notify("Config", "Cargada: " .. name)
     return true
 end
@@ -14308,6 +15421,9 @@ function BuildUI()
 local Tabs = {}
 local function addTab(key, name, icon)
     local ok, tab = pcall(function() return Window:AddTab(name, icon) end)
+    if not ok or not tab then
+        ok, tab = pcall(function() return Window:AddTab(name) end)
+    end
     if ok and tab then Tabs[key] = tab else warn("[shako] tab fail", name, tab) end
 end
 addTab("Main", "Main", "sword")
@@ -14457,14 +15573,6 @@ SoftBox:AddSlider("HitboxSize", {
     Text = "Hitbox Size", Default = 11, Min = 3, Max = 20, Rounding = 0,
     Callback = function(v) config.HitboxSize = v end
 })
-SoftBox:AddToggle("AutoEquipMelee", {
-    Text = "Auto Equip Melee", Default = false,
-    Callback = function(v) config.AutoEquipMelee = v end
-})
-SoftBox:AddInput("MeleeName", {
-    Text = "Nombre melee", Default = "Chainsaw",
-    Callback = function(v) config.MeleeName = v end
-})
 SoftBox:AddToggle("DesyncJitter", {
     Text = "Desync Jitter", Default = false,
     Callback = function(v) config.DesyncJitter = v end
@@ -14487,6 +15595,34 @@ RageBox:AddToggle("RagebotToggle", {
         config.RagebotEnabled = v
         if v then StartRagebot() Notify("Rage", "UseItem Desync ON") else StopRagebot() end
     end
+})
+RageBox:AddToggle("RageIndicatorEnabled", {
+    Text = "Rage Indicator (Grief)", Default = true,
+    Callback = function(v) config.RageIndicatorEnabled = v end
+})
+RageBox:AddToggle("RageStatusEnabled", {
+    Text = "Rage Status Text", Default = true,
+    Callback = function(v) config.RageStatusEnabled = v end
+})
+RageBox:AddToggle("RageIndicatorSnapline", {
+    Text = "Rage Snapline", Default = true,
+    Callback = function(v) config.RageIndicatorSnapline = v end
+})
+RageBox:AddDropdown("RageIndicatorColor", {
+    Text = "Indicator Color",
+    Values = {"Red", "Purple", "Cyan", "White", "Green"},
+    Default = 1,
+    Callback = function(v) config.RageIndicatorColor = v end
+})
+RageBox:AddDropdown("RageStatusMode", {
+    Text = "Status Position",
+    Values = {"static", "crosshair"},
+    Default = 1,
+    Callback = function(v) config.RageStatusMode = v end
+})
+RageBox:AddSlider("RageStatusOffsetY", {
+    Text = "Status Offset Y", Default = 48, Min = 0, Max = 200, Rounding = 0,
+    Callback = function(v) config.RageStatusOffsetY = v end
 })
 RageBox:AddToggle("RageUseItem", {
     Text = "Fire UseItem remote", Default = true,
@@ -14687,6 +15823,18 @@ SilentBox:AddSlider("SilentFOVFillTransparency", {
 SilentBox:AddToggle("SilentFOVAnimated", {
     Text = "Fill Animated", Default = true,
     Callback = function(v) config.SilentFOVAnimated = v end
+})
+SilentBox:AddToggle("SilentFOVSpin", {
+    Text = "FOV Spin (Grief)", Default = true,
+    Callback = function(v) config.SilentFOVSpin = v end
+})
+SilentBox:AddSlider("SilentFOVSpinSpeed", {
+    Text = "FOV Spin speed", Default = 1.2, Min = 0.2, Max = 4, Rounding = 1,
+    Callback = function(v) config.SilentFOVSpinSpeed = v end
+})
+SilentBox:AddSlider("SilentFOVThickness", {
+    Text = "FOV Outline", Default = 1.5, Min = 1, Max = 4, Rounding = 1,
+    Callback = function(v) config.SilentFOVThickness = v end
 })
 SilentBox:AddDropdown("SilentFOVColor", {
     Text = "FOV Color",
@@ -15205,6 +16353,17 @@ ESPBox:AddSlider("BulletTracerDuration", {
     Text = "Tracer Duration", Default = 1.2, Min = 0.2, Max = 5, Rounding = 1,
     Callback = function(v) config.BulletTracerDuration = v end
 })
+ESPBox:AddDropdown("BulletTracerStyle", {
+    Text = "Tracer style (Grief)",
+    Values = {"Line", "Laser", "Glow"},
+    Default = 1,
+    Callback = function(v) config.BulletTracerStyle = v end
+})
+ESPBox:AddSlider("BulletTracerGlow", {
+    Text = "Tracer glow", Default = 0.45, Min = 0, Max = 1, Rounding = 2,
+    Callback = function(v) config.BulletTracerGlow = v end
+})
+
 ESPBox:AddToggle("StretchedRes", {
     Text = "Stretched Resolution", Default = false,
     Callback = function(v)
@@ -15555,35 +16714,63 @@ HitFXBox:AddLabel("LuaHook-style · white hit / gold crit / red lethal")
 local EmoteBox = Tabs.World:AddLeftGroupbox("Emotes / Anims")
 EmoteBox:AddDropdown("EmotePreset", {
     Text = "Preset",
-    Values = {"Floss", "Orange Justice", "Take The L", "Default Dance", "Wave", "Cheer", "Laugh", "Point", "Anim A", "Anim B", "Anim C", "Anim D", "Shuffle", "Gangnam", "Fresh", "Custom"},
+    Values = {"Floss", "Orange Justice", "Take The L", "Default Dance", "Electro Shuffle", "Fresh", "Robot", "Hype", "Dab", "Laugh", "Wave", "Gangnam", "Shuffle", "Breakdance", "Twist", "Zombie", "Custom A", "Custom B", "Custom C", "Custom D", "Custom E", "Custom F", "Custom G", "Custom H", "Custom I", "Custom J", "Custom K", "Custom L", "Custom"},
     Default = 1,
     Callback = function(v)
         config.EmoteName = v
         if v ~= "Custom" and EMOTES and EMOTES[v] then
             config.EmoteId = tostring(EMOTES[v])
         end
+        -- al elegir, se reproduce y queda activa
+        if v ~= "Custom" then
+            task.defer(function()
+                PlayEmote(config.EmoteId, config.EmoteSpeed)
+            end)
+        end
     end
 })
 EmoteBox:AddInput("EmoteIdInput", {
-    Text = "Animation ID",
+    Text = "Animation ID (custom)",
     Default = "5917459365",
     Finished = true,
-    Callback = function(v) config.EmoteId = tostring(v):gsub("%D", "") end
+    Callback = function(v)
+        config.EmoteId = tostring(v):gsub("%D", "")
+        config.EmoteName = "Custom"
+        if config.EmoteId ~= "" then
+            task.defer(function() PlayEmote(config.EmoteId, config.EmoteSpeed) end)
+        end
+    end
 })
 EmoteBox:AddSlider("EmoteSpeed", {
-    Text = "Speed", Default = 1, Min = 0.1, Max = 5, Rounding = 1,
-    Callback = function(v) config.EmoteSpeed = v end
+    Text = "Velocidad emote", Default = 1, Min = 0.1, Max = 10, Rounding = 1,
+    Callback = function(v)
+        config.EmoteSpeed = tonumber(v) or 1
+        -- aplica al instante al track actual
+        pcall(function()
+            if currentAnimTrack then
+                currentAnimTrack:AdjustSpeed(config.EmoteSpeed)
+                -- algunos tracks ignoran AdjustSpeed si no están playing
+                if currentAnimTrack.IsPlaying then
+                    currentAnimTrack:Play(0, 1, config.EmoteSpeed)
+                end
+            end
+        end)
+    end
 })
-EmoteBox:AddToggle("EmoteLoop", {
-    Text = "Loop", Default = true,
-    Callback = function(v) config.EmoteLoop = v end
-})
-EmoteBox:AddToggle("EmoteKeepPlaying", {
-    Text = "Keep playing (al caminar)", Default = true,
-    Callback = function(v) config.EmoteKeepPlaying = v end
+EmoteBox:AddToggle("EmoteAlwaysOn", {
+    Text = "Always on (auto loop)", Default = true,
+    Callback = function(v)
+        config.EmoteKeepPlaying = v
+        config.EmoteLoop = true
+        if v and config.EmoteId then
+            PlayEmote(config.EmoteId, config.EmoteSpeed)
+        elseif not v then
+            StopEmote()
+        end
+    end
 })
 EmoteBox:AddButton({
-    Text = "Play Emote",
+    Text = "Play / Restart",
     Func = function()
         local id = config.EmoteId
         if (not id or id == "") and config.EmoteName and EMOTES[config.EmoteName] then
@@ -15596,7 +16783,104 @@ EmoteBox:AddButton({
     Text = "Stop Emote",
     Func = function() StopEmote() end
 })
-EmoteBox:AddLabel("Anim A-D = tus IDs · Priority Action4")
+EmoteBox:AddLabel("Siempre loop · se mantiene al caminar/respawn")
+EmoteBox:AddButton({
+    Text = "Play Custom A (86329...)",
+    Func = function()
+        config.EmoteId = "86329197824055"
+        config.EmoteName = "Custom A"
+        PlayEmote("86329197824055", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom B (91729...)",
+    Func = function()
+        config.EmoteId = "91729309021707"
+        config.EmoteName = "Custom B"
+        PlayEmote("91729309021707", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom C (133811...)",
+    Func = function()
+        config.EmoteId = "133811691098518"
+        config.EmoteName = "Custom C"
+        PlayEmote("133811691098518", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom D (133375...)",
+    Func = function()
+        config.EmoteId = "133375187065498"
+        config.EmoteName = "Custom D"
+        PlayEmote("133375187065498", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom E (130601...)",
+    Func = function()
+        config.EmoteId = "130601328561804"
+        config.EmoteName = "Custom E"
+        PlayEmote("130601328561804", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom F (129571...)",
+    Func = function()
+        config.EmoteId = "129571341119376"
+        config.EmoteName = "Custom F"
+        PlayEmote("129571341119376", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom G (79902...)",
+    Func = function()
+        config.EmoteId = "79902725961872"
+        config.EmoteName = "Custom G"
+        PlayEmote("79902725961872", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom H (119060...)",
+    Func = function()
+        config.EmoteId = "119060168059843"
+        config.EmoteName = "Custom H"
+        PlayEmote("119060168059843", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom I (82995...)",
+    Func = function()
+        config.EmoteId = "82995540773684"
+        config.EmoteName = "Custom I"
+        PlayEmote("82995540773684", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom J (78224...)",
+    Func = function()
+        config.EmoteId = "78224683906191"
+        config.EmoteName = "Custom J"
+        PlayEmote("78224683906191", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom K (73562...)",
+    Func = function()
+        config.EmoteId = "73562814360939"
+        config.EmoteName = "Custom K"
+        PlayEmote("73562814360939", config.EmoteSpeed)
+    end
+})
+EmoteBox:AddButton({
+    Text = "Play Custom L (88425...)",
+    Func = function()
+        config.EmoteId = "88425531063616"
+        config.EmoteName = "Custom L"
+        PlayEmote("88425531063616", config.EmoteSpeed)
+    end
+})
+
 
 
 local AUBox = Tabs.Obsidian:AddLeftGroupbox("UE Counter")
@@ -15828,7 +17112,7 @@ MoveBox:AddToggle("SlideBoost", {
     Text = "Slide Boost", Default = false,
     Callback = function(v)
         config.SlideBoostEnabled = v
-        if v then StartSlideBoostLoop() else if SlideBoostConn then SlideBoostConn:Disconnect() SlideBoostConn = nil end end
+        if v then StartSlideBoostLoop() else StopSlideBoostLoop() end
         Notify("Slide", v and ("ON x" .. tostring(config.SlideBoostMult)) or "OFF")
     end
 })
@@ -16478,11 +17762,12 @@ SoundBox:AddDropdown("HitSoundMode", {
     Callback = function(v) config.HitSoundMode = v end
 })
 SoundBox:AddDropdown("SelectedHitSound", {
-    Text = "Hit Song (Selected)",
-    Values = {"Never Lose","MLG Airhorn","Vine Boom","TF2 Crit","Boom Headshot","Quake Hit","Bameware","Bell","Bubble","Click","Pop","Rust","Fart","Big","Vine","Bruh","Skeet","Neverlose","Fatality","Bonk","Minecraft"},
+    Text = "Hit Sound (Grief)",
+    Values = {"Rust HS","Neverlose","Gamesense","Skeet","Fatality","Bonk","Osu","CSGO","TF2 Critical","TF2","Minecraft","Minecraft Hit","Bubble","Bruh","Vine","Among Us","Click","Ding","Beep","Laser","UwU","Weeb","Bamboo","Crowbar","Bat","Saber","Stone","Snow","Steve","Mario","Call of Duty","Baimware","RIFK7","Old Fatality","Big","Fart","Sans","Pick","Pop","Rust","One","Soft Bell","Minecraft Bow","Bambi","Slime"},
     Default = 1,
     Callback = function(v) config.SelectedHitSound = v end
 })
+
 SoundBox:AddDropdown("KillSoundMode", {
     Text = "Kill Mode",
     Values = {"Random", "Selected"},
@@ -16490,11 +17775,12 @@ SoundBox:AddDropdown("KillSoundMode", {
     Callback = function(v) config.KillSoundMode = v end
 })
 SoundBox:AddDropdown("SelectedKillSound", {
-    Text = "Kill Song (Selected)",
-    Values = {"OOF", "New Death", "Wake Up Bozo", "Emotional Dmg", "You Are Bad", "Alone"},
+    Text = "Kill Sound",
+    Values = {"OOF","New Death","Wake Up Bozo","Emotional Dmg","You Are Bad","Alone","Fatality","Vine","Among Us","TF2 Critical","Neverlose","Rust HS"},
     Default = 1,
     Callback = function(v) config.SelectedKillSound = v end
 })
+
 SoundBox:AddSlider("HitSoundVolume", {
     Text = "Hit Volume", Default = 2, Min = 0.1, Max = 10, Rounding = 1,
     Callback = function(v) config.HitSoundVolume = v end
@@ -16508,24 +17794,33 @@ SoundBox:AddSlider("KillSoundVolume", {
     Callback = function(v) config.KillSoundVolume = v end
 })
 SoundBox:AddButton({
-    Text = "Test Hit (Never Lose)",
+    Text = "Test Hit Sound",
     Func = function()
-        SFX.play(SFX.hit["Never Lose"], config.HitSoundVolume or 2)
-        Notify("Hit", "Never Lose " .. tostring(SFX.hit["Never Lose"]))
+        -- fuerza play aunque el toggle esté off (solo test)
+        local id = (SFX.hit and SFX.hit[config.SelectedHitSound or "Rust HS"]) or 12222216
+        SFX.play(id, math.max(config.HitSoundVolume or 7, 5), config.HitSoundPitch or 1)
+        Notify("Hit", "Test id=" .. tostring(id))
     end
 })
 SoundBox:AddButton({
     Text = "Test TF2 Crit",
     Func = function()
-        SFX.play(SFX.hit["TF2 Crit"], config.HitSoundVolume or 2)
+        SFX.play(296102734, math.max(config.HitSoundVolume or 7, 5), 1)
         Notify("Hit", "TF2 Crit")
     end
 })
 SoundBox:AddButton({
-    Text = "Test Kill (OOF)",
+    Text = "Test Kill OOF",
     Func = function()
-        SFX.play(SFX.kill["OOF"], config.KillSoundVolume or 3)
+        SFX.play(15666462, math.max(config.KillSoundVolume or 8, 5), 1)
         Notify("Kill", "OOF")
+    end
+})
+SoundBox:AddButton({
+    Text = "Test Click (garantizado)",
+    Func = function()
+        SFX.play(12222216, 10, 1)
+        Notify("Hit", "Click 12222216 volume 10")
     end
 })
 SoundBox:AddButton({
@@ -16771,8 +18066,8 @@ task.spawn(function()
     end)
 end)
 
-Notify("shako.win", "v5.23.8 · LuaHook ESP + silent")
-print("shako.win v5.23.8 Config fix")
+Notify("shako.win", "v5.27.8 · Obsidian UI")
+print("shako.win v5.27.8 Obsidian UI")
 pcall(function() task.defer(function()
     getgenv()._ShakoQuiet = true
     pcall(Cfg.TryAutoLoad)
