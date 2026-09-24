@@ -1,4 +1,4 @@
--- shako.win | Rivals HVH v5.27.8 · LuaHook ESP + silent
+-- shako.win | Rivals HVH v5.28.3 · LuaHook ESP + silent
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -129,7 +129,7 @@ do
     local ok, win = pcall(function()
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v5.27.8 · Rivals HVH",
+            Footer = "v5.28.3 · Rivals HVH",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -3458,6 +3458,10 @@ getgenv().config = {
     AimbotSmooth = 0.15,
 
     WeatherEnabled = false,
+    AmbientSoundEnabled = false,
+    AmbientSoundType = "Rain",
+    AmbientSoundVolume = 0.45,
+    AmbientSoundPitch = 1,
     Weather = false,
     WeatherType = "Rain",
     WeatherIntensity = 1,
@@ -3596,6 +3600,24 @@ getgenv().config = {
     BlurEnabled = false,
     BlurSize = 8,
     AmbientColor = false,
+    LightingOverride = false,
+    AmbientR = 120, AmbientG = 120, AmbientB = 140,
+    OutdoorR = 140, OutdoorG = 140, OutdoorB = 160,
+    ColorShiftEnabled = false,
+    ColorShiftR = 0, ColorShiftG = 0, ColorShiftB = 0,
+    TintEnabled = false,
+    TintR = 255, TintG = 255, TintB = 255,
+    ShadowsEnabled = true,
+    GlobalShadows = true,
+    EnvironmentDiffuse = 1,
+    EnvironmentSpecular = 1,
+    WallXray = false,
+    WallTransparency = 0.55,
+    WallLocalOnly = true, -- solo client
+    MapColorEnabled = false,
+    MapColorR = 80, MapColorG = 80, MapColorB = 100,
+    RemoveTextures = false,
+    GlassWindows = false,
     CharacterTransparency = 0,
     ApplyCharVisualsEnabled = false,
     ForceFieldVisual = false,
@@ -4223,37 +4245,184 @@ function ApplySky(name)
     sky.Parent = Lighting
     config.CurrentSky = name
 end
-function ApplyVisuals()
-    if config.Fullbright then
-        Lighting.Brightness = 2
-        Lighting.Ambient = Color3.new(1, 1, 1)
-        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
-        Lighting.ClockTime = 12
-        Lighting.ExposureCompensation = 0.5
+local _wallCache = _wallCache or {}
+local _mapColorCache = _mapColorCache or {}
+
+local function applyWallXray(on)
+    local trans = tonumber(config.WallTransparency) or 0.55
+    if on then
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
+                -- evitar characters de players
+                local skip = false
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr.Character and obj:IsDescendantOf(plr.Character) then skip = true break end
+                end
+                if skip then continue end
+                if obj.Transparency < 0.95 and obj.CanCollide then
+                    if not _wallCache[obj] then
+                        _wallCache[obj] = { t = obj.Transparency, mat = obj.Material }
+                    end
+                    obj.LocalTransparencyModifier = math.clamp(trans, 0, 0.95)
+                    if not config.WallLocalOnly then
+                        obj.Transparency = math.max(obj.Transparency, trans)
+                    end
+                end
+            end
+        end
     else
-        Lighting.Brightness = config.Brightness
-        Lighting.ExposureCompensation = config.Exposure
-        Lighting.ClockTime = config.ClockTime
-        if config.AmbientColor then
-            Lighting.Ambient = Color3.fromRGB(120, 120, 140)
-            Lighting.OutdoorAmbient = Color3.fromRGB(140, 140, 160)
+        for obj, data in pairs(_wallCache) do
+            if obj and obj.Parent then
+                pcall(function()
+                    obj.LocalTransparencyModifier = 0
+                    if data.t ~= nil then obj.Transparency = data.t end
+                end)
+            end
+        end
+        table.clear(_wallCache)
+    end
+end
+
+local function applyMapColor(on)
+    if not on then
+        for obj, col in pairs(_mapColorCache) do
+            if obj and obj.Parent then pcall(function() obj.Color = col end) end
+        end
+        table.clear(_mapColorCache)
+        return
+    end
+    local c = Color3.fromRGB(
+        tonumber(config.MapColorR) or 80,
+        tonumber(config.MapColorG) or 80,
+        tonumber(config.MapColorB) or 100
+    )
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local skip = false
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr.Character and obj:IsDescendantOf(plr.Character) then skip = true break end
+            end
+            if skip then continue end
+            if not _mapColorCache[obj] then
+                _mapColorCache[obj] = obj.Color
+            end
+            pcall(function() obj.Color = c end)
         end
     end
-    if config.NoFog then
-        Lighting.FogStart = 1e9
-        Lighting.FogEnd = 1e9
-    else
-        Lighting.FogStart = oldLighting.FogStart
-        Lighting.FogEnd = oldLighting.FogEnd
-    end
-    CC.Saturation = config.Saturation
-    CC.Contrast = config.Contrast
-    CC.Enabled = true
-    BloomFX.Enabled = config.BloomEnabled
-    BloomFX.Intensity = config.BloomIntensity
-    BlurFX.Enabled = config.BlurEnabled
-    BlurFX.Size = config.BlurSize
 end
+
+local function applyRemoveTextures(on)
+    if not on then return end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Texture") or obj:IsA("Decal") then
+            pcall(function() obj.Transparency = 1 end)
+        end
+    end
+end
+
+function ApplyVisuals()
+    pcall(function()
+        if config.Fullbright then
+            Lighting.Brightness = 3
+            Lighting.Ambient = Color3.new(1, 1, 1)
+            Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+            Lighting.ClockTime = 12
+            Lighting.ExposureCompensation = 0.6
+            Lighting.GlobalShadows = false
+        elseif config.LightingOverride then
+            Lighting.Brightness = tonumber(config.Brightness) or 2
+            Lighting.ExposureCompensation = tonumber(config.Exposure) or 0
+            Lighting.ClockTime = tonumber(config.ClockTime) or 14
+            Lighting.Ambient = Color3.fromRGB(
+                tonumber(config.AmbientR) or 120,
+                tonumber(config.AmbientG) or 120,
+                tonumber(config.AmbientB) or 140
+            )
+            Lighting.OutdoorAmbient = Color3.fromRGB(
+                tonumber(config.OutdoorR) or 140,
+                tonumber(config.OutdoorG) or 140,
+                tonumber(config.OutdoorB) or 160
+            )
+            if config.GlobalShadows ~= nil then
+                Lighting.GlobalShadows = config.GlobalShadows and true or false
+            end
+            pcall(function()
+                Lighting.EnvironmentDiffuseScale = tonumber(config.EnvironmentDiffuse) or 1
+                Lighting.EnvironmentSpecularScale = tonumber(config.EnvironmentSpecular) or 1
+            end)
+        else
+            if not config.Fullbright then
+                Lighting.Brightness = tonumber(config.Brightness) or oldLighting.Brightness
+                Lighting.ExposureCompensation = tonumber(config.Exposure) or oldLighting.ExposureCompensation
+                Lighting.ClockTime = tonumber(config.ClockTime) or oldLighting.ClockTime
+            end
+            if config.AmbientColor then
+                Lighting.Ambient = Color3.fromRGB(
+                    tonumber(config.AmbientR) or 120,
+                    tonumber(config.AmbientG) or 120,
+                    tonumber(config.AmbientB) or 140
+                )
+                Lighting.OutdoorAmbient = Color3.fromRGB(
+                    tonumber(config.OutdoorR) or 140,
+                    tonumber(config.OutdoorG) or 140,
+                    tonumber(config.OutdoorB) or 160
+                )
+            end
+        end
+
+        if config.NoFog then
+            Lighting.FogStart = 1e9
+            Lighting.FogEnd = 1e9
+            pcall(function() Lighting.Atmosphere.Density = 0 end)
+        else
+            Lighting.FogStart = oldLighting.FogStart
+            Lighting.FogEnd = oldLighting.FogEnd
+        end
+
+        -- ColorCorrection
+        CC.Enabled = true
+        CC.Saturation = tonumber(config.Saturation) or 0
+        CC.Contrast = tonumber(config.Contrast) or 0
+        if config.TintEnabled then
+            CC.TintColor = Color3.fromRGB(
+                tonumber(config.TintR) or 255,
+                tonumber(config.TintG) or 255,
+                tonumber(config.TintB) or 255
+            )
+        else
+            CC.TintColor = Color3.new(1, 1, 1)
+        end
+
+        -- ColorShift (Lighting)
+        if config.ColorShiftEnabled then
+            pcall(function()
+                Lighting.ColorShift_Top = Color3.fromRGB(
+                    tonumber(config.ColorShiftR) or 0,
+                    tonumber(config.ColorShiftG) or 0,
+                    tonumber(config.ColorShiftB) or 0
+                )
+                Lighting.ColorShift_Bottom = Lighting.ColorShift_Top
+            end)
+        end
+
+        BloomFX.Enabled = config.BloomEnabled and true or false
+        BloomFX.Intensity = tonumber(config.BloomIntensity) or 0.4
+        BlurFX.Enabled = config.BlurEnabled and true or false
+        BlurFX.Size = tonumber(config.BlurSize) or 8
+
+        -- World mods (pesados: solo al toggle / apply)
+        if config.WallXray then
+            task.defer(function() pcall(applyWallXray, true) end)
+        end
+        if config.MapColorEnabled then
+            task.defer(function() pcall(applyMapColor, true) end)
+        end
+        if config.RemoveTextures then
+            task.defer(function() pcall(applyRemoveTextures, true) end)
+        end
+    end)
+end
+
 function ResetVisuals()
     pcall(function()
         Lighting.Brightness = oldLighting.Brightness
@@ -4263,11 +4432,21 @@ function ResetVisuals()
         Lighting.ClockTime = oldLighting.ClockTime
         Lighting.FogStart = oldLighting.FogStart
         Lighting.FogEnd = oldLighting.FogEnd
+        Lighting.GlobalShadows = true
+        pcall(function()
+            Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+            Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
+        end)
     end)
     CC.Enabled = false
+    CC.TintColor = Color3.new(1, 1, 1)
     BloomFX.Enabled = false
     BlurFX.Enabled = false
-    ResetCameraNormal()
+    config.WallXray = false
+    config.MapColorEnabled = false
+    pcall(function() applyWallXray(false) end)
+    pcall(function() applyMapColor(false) end)
+    pcall(ResetCameraNormal)
 end
 
 -- ForceField visual (más transparente + estilos)
@@ -4865,6 +5044,106 @@ function StartDefense()
             lastMicro = tick()
             local p = config.RandomMicroPower or 3
             my.CFrame = my.CFrame + Vector3.new((math.random() - 0.5) * p, 0, (math.random() - 0.5) * p)
+        end
+
+        -- ===== ANTI-RAGER TACTICS =====
+        local orbitOn = config.OrbitEvade or config.RagerCombo
+        local heightOn = config.HeightJitter or config.RagerCombo
+        local headOn = config.AntiHeadTP or config.RagerCombo
+        local strafeOn = config.StrafePattern or config.RagerCombo
+        local peekOn = config.FakePeek
+
+        -- Orbit: gira alrededor del enemigo cercano (rompe TP a la cabeza)
+        if orbitOn then
+            local range = config.OrbitEvadeRange or 45
+            local plr, root = defenseEnemyNear(range)
+            if root then
+                local radius = config.OrbitEvadeRadius or 12
+                local spd = config.OrbitEvadeSpeed or 8
+                local ang = tick() * spd
+                local cx, cz = root.Position.X, root.Position.Z
+                local y = root.Position.Y + 1.5
+                local gx = cx + math.cos(ang) * radius
+                local gz = cz + math.sin(ang) * radius
+                local goal = Vector3.new(gx, y, gz)
+                local cur = my.Position
+                local step = (goal - cur)
+                if step.Magnitude > 0.5 then
+                    -- no saltar de golpe: interpolar
+                    local maxStep = 4.5
+                    if step.Magnitude > maxStep then step = step.Unit * maxStep end
+                    my.CFrame = CFrame.new(cur + step)
+                    my.AssemblyLinearVelocity = Vector3.new(step.X * 8, my.AssemblyLinearVelocity.Y, step.Z * 8)
+                end
+            end
+        end
+
+        -- Height jitter: sube/baja para que el head-aim falle
+        if heightOn then
+            local amt = config.HeightJitterAmount or 6
+            local spd = config.HeightJitterSpeed or 12
+            local oy = math.sin(tick() * spd) * amt
+            local p = my.Position
+            my.CFrame = CFrame.new(p.X, p.Y + oy * 0.08, p.Z) -- micro por frame
+        end
+
+        -- Anti head TP: si alguien está casi encima, empuja lejos
+        if headOn then
+            local dist = config.AntiHeadTPDist or 12
+            local push = config.AntiHeadTPPush or 35
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr == LocalPlayer then continue end
+                if config.TeamCheck and IsSameTeam and IsSameTeam(plr) then continue end
+                local rh = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+                if not rh then continue end
+                local delta = rh.Position - my.Position
+                local horiz = Vector3.new(delta.X, 0, delta.Z).Magnitude
+                if horiz < dist and delta.Y > 2 and delta.Y < 25 then
+                    -- rager encima → lateral + atrás
+                    local away = Vector3.new(-delta.X, 0, -delta.Z)
+                    if away.Magnitude < 0.1 then away = my.CFrame.RightVector end
+                    away = away.Unit
+                    my.CFrame = my.CFrame + away * math.min(push * 0.15, 8) + Vector3.new(0, -1, 0)
+                    my.AssemblyLinearVelocity = away * push
+                    break
+                end
+            end
+        end
+
+        -- Strafe pattern A-D
+        if strafeOn then
+            local rate = config.StrafePatternRate or 0.18
+            if not _strafeSide then _strafeSide = 1 end
+            if not _lastStrafeT then _lastStrafeT = 0 end
+            if tick() - _lastStrafeT >= rate then
+                _lastStrafeT = tick()
+                _strafeSide = -_strafeSide
+                local d = config.StrafePatternDist or 10
+                my.CFrame = my.CFrame + my.CFrame.RightVector * (_strafeSide * d * 0.35)
+                local v = my.AssemblyLinearVelocity
+                my.AssemblyLinearVelocity = Vector3.new(my.CFrame.RightVector.X * _strafeSide * 40, v.Y, my.CFrame.RightVector.Z * _strafeSide * 40)
+            end
+        end
+
+        -- Fake peek: sale al lado y vuelve
+        if peekOn then
+            local rate = config.FakePeekRate or 0.55
+            if not _lastPeekT then _lastPeekT = 0 end
+            if not _peekPhase then _peekPhase = 0 end
+            if tick() - _lastPeekT >= rate then
+                _lastPeekT = tick()
+                local d = config.FakePeekDist or 18
+                if _peekPhase == 0 then
+                    _peekOrigin = my.Position
+                    my.CFrame = my.CFrame + my.CFrame.RightVector * d
+                    _peekPhase = 1
+                else
+                    if _peekOrigin then
+                        my.CFrame = CFrame.new(_peekOrigin.X, my.Position.Y, _peekOrigin.Z)
+                    end
+                    _peekPhase = 0
+                end
+            end
         end
     end)
 end
@@ -14986,6 +15265,7 @@ function Cfg.ApplyLoadedState()
         end)
         safe(function()
             if config.SlideBoostEnabled then StartSlideBoostLoop() end
+            if config.AmbientSoundEnabled then StartAmbientSound() end
         end)
         safe(function()
             if config.StretchedRes then ApplyStretchedRes() end
@@ -16112,32 +16392,96 @@ VisBox:AddToggle("Fullbright", {
     Text = "Fullbright", Default = false,
     Callback = function(v) config.Fullbright = v ApplyVisuals() end
 })
+VisBox:AddToggle("LightingOverride", {
+    Text = "Enable Lighting Override", Default = false,
+    Callback = function(v) config.LightingOverride = v ApplyVisuals() end
+})
 VisBox:AddSlider("Brightness", {
     Text = "Brightness", Default = 2, Min = 0, Max = 10, Rounding = 1,
     Callback = function(v) config.Brightness = v ApplyVisuals() end
 })
 VisBox:AddSlider("Exposure", {
-    Text = "Exposure", Default = 0, Min = -2, Max = 2, Rounding = 1,
+    Text = "Exposure", Default = 0, Min = -3, Max = 3, Rounding = 1,
     Callback = function(v) config.Exposure = v ApplyVisuals() end
 })
 VisBox:AddSlider("ClockTime", {
-    Text = "Hora", Default = 14, Min = 0, Max = 24, Rounding = 0,
+    Text = "Time (Clock)", Default = 14, Min = 0, Max = 24, Rounding = 0,
     Callback = function(v) config.ClockTime = v ApplyVisuals() end
 })
 VisBox:AddToggle("NoFog", {
     Text = "No Fog", Default = true,
     Callback = function(v) config.NoFog = v ApplyVisuals() end
 })
+VisBox:AddToggle("GlobalShadows", {
+    Text = "Global Shadows", Default = true,
+    Callback = function(v) config.GlobalShadows = v ApplyVisuals() end
+})
 VisBox:AddToggle("AmbientColor", {
-    Text = "Ambient cool", Default = false,
+    Text = "Ambient Colors", Default = false,
     Callback = function(v) config.AmbientColor = v ApplyVisuals() end
 })
+VisBox:AddSlider("AmbientR", {
+    Text = "Ambient R", Default = 120, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.AmbientR = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
+})
+VisBox:AddSlider("AmbientG", {
+    Text = "Ambient G", Default = 120, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.AmbientG = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
+})
+VisBox:AddSlider("AmbientB", {
+    Text = "Ambient B", Default = 140, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.AmbientB = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
+})
+VisBox:AddSlider("OutdoorR", {
+    Text = "Outdoor R", Default = 140, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.OutdoorR = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
+})
+VisBox:AddSlider("OutdoorG", {
+    Text = "Outdoor G", Default = 140, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.OutdoorG = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
+})
+VisBox:AddSlider("OutdoorB", {
+    Text = "Outdoor B", Default = 160, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.OutdoorB = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
+})
+VisBox:AddToggle("ColorShiftEnabled", {
+    Text = "Color Shift", Default = false,
+    Callback = function(v) config.ColorShiftEnabled = v ApplyVisuals() end
+})
+VisBox:AddSlider("ColorShiftR", {
+    Text = "Shift R", Default = 0, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.ColorShiftR = v if config.ColorShiftEnabled then ApplyVisuals() end end
+})
+VisBox:AddSlider("ColorShiftG", {
+    Text = "Shift G", Default = 0, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.ColorShiftG = v if config.ColorShiftEnabled then ApplyVisuals() end end
+})
+VisBox:AddSlider("ColorShiftB", {
+    Text = "Shift B", Default = 0, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.ColorShiftB = v if config.ColorShiftEnabled then ApplyVisuals() end end
+})
+VisBox:AddToggle("TintEnabled", {
+    Text = "Tint Color", Default = false,
+    Callback = function(v) config.TintEnabled = v ApplyVisuals() end
+})
+VisBox:AddSlider("TintR", {
+    Text = "Tint R", Default = 255, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.TintR = v if config.TintEnabled then ApplyVisuals() end end
+})
+VisBox:AddSlider("TintG", {
+    Text = "Tint G", Default = 255, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.TintG = v if config.TintEnabled then ApplyVisuals() end end
+})
+VisBox:AddSlider("TintB", {
+    Text = "Tint B", Default = 255, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.TintB = v if config.TintEnabled then ApplyVisuals() end end
+})
 VisBox:AddSlider("Saturation", {
-    Text = "Saturacion", Default = 0, Min = -1, Max = 1, Rounding = 2,
+    Text = "Saturation", Default = 0, Min = -1, Max = 1, Rounding = 2,
     Callback = function(v) config.Saturation = v ApplyVisuals() end
 })
 VisBox:AddSlider("Contrast", {
-    Text = "Contraste", Default = 0, Min = -1, Max = 1, Rounding = 2,
+    Text = "Contrast", Default = 0, Min = -1, Max = 1, Rounding = 2,
     Callback = function(v) config.Contrast = v ApplyVisuals() end
 })
 VisBox:AddToggle("BloomEnabled", {
@@ -16156,14 +16500,79 @@ VisBox:AddSlider("BlurSize", {
     Text = "Blur Size", Default = 8, Min = 1, Max = 24, Rounding = 0,
     Callback = function(v) config.BlurSize = v ApplyVisuals() end
 })
+VisBox:AddDivider()
+VisBox:AddLabel("—— World / Map ——")
+VisBox:AddToggle("WallXray", {
+    Text = "Wall X-Ray (transparencia)", Default = false,
+    Callback = function(v)
+        config.WallXray = v
+        if v then
+            ApplyVisuals()
+        else
+            pcall(function() applyWallXray(false) end)
+        end
+        Notify("Visual", v and "Wall X-Ray ON" or "Wall X-Ray OFF")
+    end
+})
+VisBox:AddSlider("WallTransparency", {
+    Text = "Wall Transparency", Default = 0.55, Min = 0.1, Max = 0.95, Rounding = 2,
+    Callback = function(v)
+        config.WallTransparency = v
+        if config.WallXray then pcall(function() applyWallXray(true) end) end
+    end
+})
+VisBox:AddToggle("MapColorEnabled", {
+    Text = "Map Color (tinte mapa)", Default = false,
+    Callback = function(v)
+        config.MapColorEnabled = v
+        if v then ApplyVisuals() else pcall(function() applyMapColor(false) end) end
+    end
+})
+VisBox:AddSlider("MapColorR", {
+    Text = "Map R", Default = 80, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.MapColorR = v if config.MapColorEnabled then pcall(function() applyMapColor(true) end) end end
+})
+VisBox:AddSlider("MapColorG", {
+    Text = "Map G", Default = 80, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.MapColorG = v if config.MapColorEnabled then pcall(function() applyMapColor(true) end) end end
+})
+VisBox:AddSlider("MapColorB", {
+    Text = "Map B", Default = 100, Min = 0, Max = 255, Rounding = 0,
+    Callback = function(v) config.MapColorB = v if config.MapColorEnabled then pcall(function() applyMapColor(true) end) end end
+})
+VisBox:AddToggle("RemoveTextures", {
+    Text = "Remove Textures", Default = false,
+    Callback = function(v)
+        config.RemoveTextures = v
+        if v then pcall(function() applyRemoveTextures(true) end) end
+        Notify("Visual", v and "Textures off" or "Textures (solo al ON)")
+    end
+})
 VisBox:AddButton({
     Text = "Preset HVH",
     Func = function()
         config.Fullbright = true
+        config.LightingOverride = true
         config.NoFog = true
         config.Saturation = 0.1
+        config.GlobalShadows = false
         ApplyVisuals()
         ResetCameraNormal()
+    end
+})
+VisBox:AddButton({
+    Text = "Preset Night Blue",
+    Func = function()
+        config.LightingOverride = true
+        config.Fullbright = false
+        config.ClockTime = 22
+        config.Brightness = 1.5
+        config.AmbientR, config.AmbientG, config.AmbientB = 40, 50, 90
+        config.OutdoorR, config.OutdoorG, config.OutdoorB = 30, 40, 80
+        config.ColorShiftEnabled = true
+        config.ColorShiftR, config.ColorShiftG, config.ColorShiftB = 20, 40, 120
+        config.NoFog = true
+        ApplyVisuals()
     end
 })
 VisBox:AddButton({
@@ -16711,6 +17120,221 @@ HitFXBox:AddToggle("FXKillBanner", {
 HitFXBox:AddLabel("LuaHook-style · white hit / gold crit / red lethal")
 
 
+-- ==================== AMBIENT SOUNDS (relajantes) ====================
+-- IDs públicos que suelen cargar (si uno falla, se prueba el fallback)
+local AMBIENT_SOUNDS = {
+    ["Rain"]         = { "rbxassetid://1516791621", "rbxassetid://5114135799", "rbxassetid://6066411733" },
+    ["Heavy Rain"]   = { "rbxassetid://5114135799", "rbxassetid://1516791621", "rbxassetid://6066411733" },
+    ["Thunder"]      = { "rbxassetid://1516791621", "rbxassetid://5114135799" },
+    ["Forest"]       = { "rbxassetid://3472701279", "rbxassetid://3422304783", "rbxassetid://224851262" },
+    ["Birds"]        = { "rbxassetid://3472701279", "rbxassetid://3422304783" },
+    ["Wind"]         = { "rbxassetid://224851262", "rbxassetid://336142745", "rbxassetid://5987864649" },
+    ["Ocean"]        = { "rbxassetid://166475216", "rbxassetid://4792901531", "rbxassetid://5987864649" },
+    ["Campfire"]     = { "rbxassetid://317656970", "rbxassetid://4601689861" },
+    ["Night"]        = { "rbxassetid://3458023152", "rbxassetid://3472701279", "rbxassetid://5987864649" },
+    ["River"]        = { "rbxassetid://166475216", "rbxassetid://4792901531" },
+    ["Soft Piano"]   = { "rbxassetid://1845554019", "rbxassetid://1837829205" },
+    ["LoFi"]         = { "rbxassetid://9043887091", "rbxassetid://1845554019" },
+    ["Rain Classic"] = { "rbxassetid://1516791621" },
+    ["Wind Classic"] = { "rbxassetid://224851262" },
+    ["Fire Classic"] = { "rbxassetid://317656970" },
+}
+
+local ambientSoundObj = nil
+local ambientToken = 0
+
+local function stopAmbientSound()
+    ambientToken = ambientToken + 1 -- cancela waits pendientes
+    config.AmbientSoundEnabled = false
+    -- parar el objeto actual
+    if ambientSoundObj then
+        pcall(function() ambientSoundObj:Stop() end)
+        pcall(function() ambientSoundObj.Volume = 0 end)
+        pcall(function() ambientSoundObj:Destroy() end)
+        ambientSoundObj = nil
+    end
+    -- limpiar TODOS los ShakoAmbient (por si quedaron clones)
+    pcall(function()
+        for _, parent in ipairs({ SoundService, workspace, LocalPlayer:FindFirstChild("PlayerGui") }) do
+            if not parent then continue end
+            for _, s in ipairs(parent:GetDescendants()) do
+                if s:IsA("Sound") and (s.Name == "ShakoAmbient" or s.Name:find("ShakoAmbient", 1, true)) then
+                    pcall(function() s:Stop() end)
+                    pcall(function() s.Volume = 0 end)
+                    pcall(function() s:Destroy() end)
+                end
+            end
+            for _, s in ipairs(parent:GetChildren()) do
+                if s:IsA("Sound") and s.Name == "ShakoAmbient" then
+                    pcall(function() s:Stop() end)
+                    pcall(function() s:Destroy() end)
+                end
+            end
+        end
+    end)
+    -- también en Character HRP
+    pcall(function()
+        local char = LocalPlayer.Character
+        if char then
+            for _, s in ipairs(char:GetDescendants()) do
+                if s:IsA("Sound") and s.Name == "ShakoAmbient" then
+                    pcall(function() s:Stop() s:Destroy() end)
+                end
+            end
+        end
+    end)
+end
+
+local function playAmbientSound()
+    -- stop limpio sin apagar el flag (play lo vuelve a poner)
+    local wasOn = true
+    local tok = ambientToken + 1
+    ambientToken = tok
+    if ambientSoundObj then
+        pcall(function() ambientSoundObj:Stop() end)
+        pcall(function() ambientSoundObj:Destroy() end)
+        ambientSoundObj = nil
+    end
+    pcall(function()
+        for _, s in ipairs(SoundService:GetChildren()) do
+            if s:IsA("Sound") and s.Name == "ShakoAmbient" then
+                pcall(function() s:Stop() s:Destroy() end)
+            end
+        end
+    end)
+
+    if not config.AmbientSoundEnabled then return end
+
+    local name = config.AmbientSoundType or "Rain"
+    local list = AMBIENT_SOUNDS[name] or AMBIENT_SOUNDS["Rain"]
+    if type(list) == "string" then list = { list } end
+
+    local vol = math.clamp(tonumber(config.AmbientSoundVolume) or 0.45, 0, 2)
+    local pitch = math.clamp(tonumber(config.AmbientSoundPitch) or 1, 0.5, 1.5)
+
+    local function tryId(uri)
+        if ambientToken ~= tok then return false end
+        local s = Instance.new("Sound")
+        s.Name = "ShakoAmbient"
+        s.SoundId = uri
+        s.Looped = true
+        s.Volume = vol
+        s.PlaybackSpeed = pitch
+        s.PlayOnRemove = false
+        pcall(function()
+            s.RollOffMode = Enum.RollOffMode.Linear
+            s.RollOffMaxDistance = 100000
+            s.RollOffMinDistance = 10000
+        end)
+        s.Parent = SoundService
+        -- NO usar PlayLocalSound (crea instancia que no se puede stoppear fácil)
+        local okPlay = pcall(function() s:Play() end)
+        ambientSoundObj = s
+
+        -- esperar carga
+        local t0 = tick()
+        while ambientToken == tok and s.Parent and not s.IsLoaded and (tick() - t0) < 2.5 do
+            task.wait(0.05)
+        end
+        if ambientToken ~= tok then
+            pcall(function() s:Stop() s:Destroy() end)
+            return false
+        end
+        -- si cargó o está sonando
+        if s.IsLoaded or s.IsPlaying or (s.TimeLength and s.TimeLength > 0) then
+            if not s.IsPlaying then pcall(function() s:Play() end) end
+            return true
+        end
+        -- falló este id
+        pcall(function() s:Stop() s:Destroy() end)
+        if ambientSoundObj == s then ambientSoundObj = nil end
+        return false
+    end
+
+    task.spawn(function()
+        for _, uri in ipairs(list) do
+            if ambientToken ~= tok then return end
+            if tryId(uri) then
+                return
+            end
+        end
+        -- último recurso: rain clásico
+        if ambientToken == tok and config.AmbientSoundEnabled then
+            tryId("rbxassetid://1516791621")
+        end
+    end)
+end
+
+function StartAmbientSound()
+    config.AmbientSoundEnabled = true
+    playAmbientSound()
+end
+
+function StopAmbientSound()
+    stopAmbientSound()
+    Notify("Ambient", "OFF")
+end
+
+function SetAmbientVolume(v)
+    config.AmbientSoundVolume = v
+    if ambientSoundObj and ambientSoundObj.Parent then
+        pcall(function() ambientSoundObj.Volume = math.clamp(tonumber(v) or 0.45, 0, 2) end)
+    end
+end
+
+local AmbientBox = Tabs.World:AddLeftGroupbox("Ambient Sounds")
+AmbientBox:AddToggle("AmbientSoundEnabled", {
+    Text = "Ambient Sound", Default = false,
+    Callback = function(v)
+        if v then
+            StartAmbientSound()
+            Notify("Ambient", "ON · " .. tostring(config.AmbientSoundType or "Rain"))
+        else
+            StopAmbientSound()
+        end
+    end
+})
+AmbientBox:AddDropdown("AmbientSoundType", {
+    Text = "Tipo",
+    Values = {"Rain", "Heavy Rain", "Thunder", "Forest", "Birds", "Wind", "Ocean", "Campfire", "Night", "River", "Soft Piano", "LoFi", "Rain Classic", "Wind Classic", "Fire Classic"},
+    Default = 1,
+    Callback = function(v)
+        config.AmbientSoundType = v
+        if config.AmbientSoundEnabled then
+            playAmbientSound()
+        end
+    end
+})
+AmbientBox:AddSlider("AmbientSoundVolume", {
+    Text = "Volumen", Default = 0.45, Min = 0.05, Max = 1.5, Rounding = 2,
+    Callback = function(v) SetAmbientVolume(v) end
+})
+AmbientBox:AddSlider("AmbientSoundPitch", {
+    Text = "Pitch", Default = 1, Min = 0.6, Max = 1.4, Rounding = 2,
+    Callback = function(v)
+        config.AmbientSoundPitch = v
+        if ambientSoundObj and ambientSoundObj.Parent then
+            pcall(function() ambientSoundObj.PlaybackSpeed = v end)
+        end
+    end
+})
+AmbientBox:AddButton({
+    Text = "Play / Restart",
+    Func = function()
+        config.AmbientSoundEnabled = true
+        playAmbientSound()
+        Notify("Ambient", tostring(config.AmbientSoundType or "Rain"))
+    end
+})
+AmbientBox:AddButton({
+    Text = "Stop",
+    Func = function()
+        StopAmbientSound()
+    end
+})
+AmbientBox:AddLabel("Stop ahora sí corta · varios IDs por tipo")
+
+
 local EmoteBox = Tabs.World:AddLeftGroupbox("Emotes / Anims")
 EmoteBox:AddDropdown("EmotePreset", {
     Text = "Preset",
@@ -17012,7 +17636,88 @@ DefBox:AddToggle("RandomMicroMove", {
         if anyDefenseOn() then StartDefense() else StopDefense() end
     end
 })
-DefBox:AddLabel("Ayuda vs ragers / melee HVH")
+DefBox:AddDivider()
+DefBox:AddLabel("—— Anti-Rager ——")
+DefBox:AddToggle("RagerCombo", {
+    Text = "Rager Combo (preset)", Default = false,
+    Callback = function(v)
+        config.RagerCombo = v
+        if v then
+            config.OrbitEvade = true
+            config.HeightJitter = true
+            config.AntiHeadTP = true
+            config.StrafePattern = true
+            config.VelocityBreak = true
+            config.DesyncSpam = true
+            config.HurtEvade = true
+            StartDefense()
+            Notify("HVH", "Rager Combo ON")
+        else
+            if anyDefenseOn() then StartDefense() else StopDefense() end
+            Notify("HVH", "Rager Combo OFF")
+        end
+    end
+})
+DefBox:AddToggle("OrbitEvade", {
+    Text = "Orbit Evade (rompe head-TP)", Default = false,
+    Callback = function(v)
+        config.OrbitEvade = v
+        if anyDefenseOn() then StartDefense() else StopDefense() end
+    end
+})
+DefBox:AddSlider("OrbitEvadeRadius", {
+    Text = "Orbit Radius", Default = 12, Min = 4, Max = 40, Rounding = 0,
+    Callback = function(v) config.OrbitEvadeRadius = v end
+})
+DefBox:AddSlider("OrbitEvadeSpeed", {
+    Text = "Orbit Speed", Default = 8, Min = 2, Max = 25, Rounding = 0,
+    Callback = function(v) config.OrbitEvadeSpeed = v end
+})
+DefBox:AddToggle("HeightJitter", {
+    Text = "Height Jitter (anti aim)", Default = false,
+    Callback = function(v)
+        config.HeightJitter = v
+        if anyDefenseOn() then StartDefense() else StopDefense() end
+    end
+})
+DefBox:AddSlider("HeightJitterAmount", {
+    Text = "Height Amount", Default = 6, Min = 1, Max = 20, Rounding = 0,
+    Callback = function(v) config.HeightJitterAmount = v end
+})
+DefBox:AddToggle("AntiHeadTP", {
+    Text = "Anti Head-TP (si están arriba)", Default = false,
+    Callback = function(v)
+        config.AntiHeadTP = v
+        if anyDefenseOn() then StartDefense() else StopDefense() end
+    end
+})
+DefBox:AddSlider("AntiHeadTPPush", {
+    Text = "Head-TP Push", Default = 35, Min = 10, Max = 100, Rounding = 0,
+    Callback = function(v) config.AntiHeadTPPush = v end
+})
+DefBox:AddToggle("StrafePattern", {
+    Text = "Strafe Pattern (A-D)", Default = false,
+    Callback = function(v)
+        config.StrafePattern = v
+        if anyDefenseOn() then StartDefense() else StopDefense() end
+    end
+})
+DefBox:AddSlider("StrafePatternDist", {
+    Text = "Strafe Dist", Default = 10, Min = 3, Max = 30, Rounding = 0,
+    Callback = function(v) config.StrafePatternDist = v end
+})
+DefBox:AddToggle("FakePeek", {
+    Text = "Fake Peek (lado y vuelve)", Default = false,
+    Callback = function(v)
+        config.FakePeek = v
+        if anyDefenseOn() then StartDefense() else StopDefense() end
+    end
+})
+DefBox:AddSlider("FakePeekDist", {
+    Text = "Peek Dist", Default = 18, Min = 5, Max = 50, Rounding = 0,
+    Callback = function(v) config.FakePeekDist = v end
+})
+DefBox:AddLabel("Combo + Orbit + Height = mejor vs ragers")
 
 local AABox = Tabs.Obsidian:AddRightGroupbox("Anti Aim")
 AABox:AddToggle("AntiAimToggle", {
@@ -18066,8 +18771,8 @@ task.spawn(function()
     end)
 end)
 
-Notify("shako.win", "v5.27.8 · Obsidian UI")
-print("shako.win v5.27.8 Obsidian UI")
+Notify("shako.win", "v5.28.3 · Obsidian UI")
+print("shako.win v5.28.3 Obsidian UI")
 pcall(function() task.defer(function()
     getgenv()._ShakoQuiet = true
     pcall(Cfg.TryAutoLoad)
