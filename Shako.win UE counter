@@ -1,4 +1,4 @@
--- shako.win | Rivals HVH v5.28.6 · LuaHook ESP + silent
+-- shako.win | Rivals HVH v5.29.1 · LuaHook ESP + silent
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -129,7 +129,7 @@ do
     local ok, win = pcall(function()
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v5.28.6 · Rivals HVH",
+            Footer = "v5.29.1 · Rivals HVH",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -634,14 +634,33 @@ local function ApplyNameSpoof(obj)
         end
 
         local newText = text
-        if s.leaderboard and s.leaderboard.Wins and objName == "Wins" then
-            newText = FormatNumber(s.leaderboard.wins_value)
-        elseif s.leaderboard and s.leaderboard.Level and parentName == "Level" and objName == "Value" then
-            newText = FormatNumber(s.leaderboard.level_value)
-        elseif s.leaderboard and s.leaderboard.Streak and parentName == "Streak" and objName == "Value" then
-            newText = FormatNumber(s.leaderboard.streak_value)
-        elseif s.leaderboard and s.leaderboard.Kills and parentName == "Kills" and objName == "Value" then
-            newText = FormatNumber(s.leaderboard.kills_value)
+        local lb = s.leaderboard
+        local chain = string.lower(objName .. " " .. parentName)
+        pcall(function()
+            local p = obj.Parent
+            for _ = 1, 6 do
+                if not p then break end
+                chain = chain .. " " .. string.lower(p.Name or "")
+                p = p.Parent
+            end
+        end)
+        local isNum = text:match("^%s*[%d%.,]+%s*$") ~= nil
+        if lb then
+            if lb.Wins and (objName == "Wins" or chain:find("wins", 1, true)) and (isNum or objName == "Wins") then
+                newText = FormatNumber(lb.wins_value)
+            elseif lb.Level and (parentName == "Level" or objName == "Level" or objName == "Value" or chain:find("level", 1, true))
+                and (isNum or parentName == "Level" or objName == "Value")
+                and not chain:find("winrate", 1, true) and not chain:find("weapon", 1, true) then
+                if isNum or parentName == "Level" or objName == "Value" then
+                    newText = FormatNumber(lb.level_value)
+                end
+            elseif lb.Streak and (parentName == "Streak" or objName == "Streak" or chain:find("streak", 1, true))
+                and (isNum or objName == "Value") then
+                newText = FormatNumber(lb.streak_value)
+            elseif lb.Kills and (parentName == "Kills" or objName == "Kills" or chain:find("kill", 1, true))
+                and (isNum or objName == "Value") then
+                newText = FormatNumber(lb.kills_value)
+            end
         end
         if newText ~= text then
             local num = tonumber(newText) or (typeof(newText) == "string" and tonumber((tostring(newText):gsub("[^%d%-%.]", ""))))
@@ -2656,17 +2675,60 @@ function RivalsDeviceSpam(on)
     end
 end
 
+function PatchProfileStats()
+    local st = (getgenv()._ShakoStates and getgenv()._ShakoStates.spoofer_state) or (_st and _st())
+    if not st or not st.leaderboard then return end
+    local lb = st.leaderboard
+    if not (lb.Level or lb.Streak or lb.Wins or lb.Kills or lb.ELO) then return end
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return end
+    local n = 0
+    for _, obj in ipairs(pg:GetDescendants()) do
+        if not (obj:IsA("TextLabel") or obj:IsA("TextButton")) then continue end
+        local t = obj.Text
+        if typeof(t) ~= "string" or t == "" then continue end
+        local on = obj.Name or ""
+        local pn = obj.Parent and obj.Parent.Name or ""
+        local chain = string.lower(on .. " " .. pn)
+        pcall(function()
+            local p = obj.Parent
+            for _ = 1, 5 do
+                if not p then break end
+                chain = chain .. " " .. string.lower(p.Name or "")
+                p = p.Parent
+            end
+        end)
+        local isNum = t:match("^%s*[%d%.,]+%s*$") ~= nil
+        local want = nil
+        if lb.Level and isNum and (chain:find("level", 1, true) or (on == "Value" and pn == "Level"))
+            and not chain:find("winrate", 1, true) and not chain:find("weapon", 1, true) then
+            want = tostring(lb.level_value)
+        elseif lb.Streak and isNum and chain:find("streak", 1, true) then
+            want = tostring(lb.streak_value)
+        elseif lb.Wins and isNum and (chain:find("wins", 1, true) or on == "Wins") and not chain:find("winrate", 1, true) then
+            want = tostring(lb.wins_value)
+        elseif lb.Kills and isNum and chain:find("kill", 1, true) then
+            want = tostring(lb.kills_value)
+        end
+        if want and t ~= want then
+            pcall(function() obj.Text = want end)
+            n = n + 1
+        end
+        if n > 40 then break end
+    end
+end
+
 function RivalsApplyLeaderboard()
     local st = _st()
     if st and st.leaderboard then
         local lb = st.leaderboard
-        -- sync from .lb proxy if used
-        if st.lb then
-            -- already same table via metatable
-        end
         pcall(function()
             if lb.Level then LocalPlayer:SetAttribute("Level", lb.level_value) end
             if lb.Streak then LocalPlayer:SetAttribute("StatisticDuelsWinStreak", lb.streak_value) end
+            if lb.ELO then
+                pcall(function() LocalPlayer:SetAttribute("StatisticHighestELO", lb.elo_value) end)
+                pcall(function() LocalPlayer:SetAttribute("HighestELO", lb.elo_value) end)
+            end
         end)
     end
     if getgenv()._ShakoUpdateLB then
@@ -2675,6 +2737,13 @@ function RivalsApplyLeaderboard()
     else
         Notify("LB", "attrs only")
     end
+    task.defer(function()
+        pcall(PatchProfileStats)
+        task.wait(0.4)
+        pcall(PatchProfileStats)
+        task.wait(1.0)
+        pcall(PatchProfileStats)
+    end)
 end
 
 function RivalsUpdateCharm()
@@ -3385,6 +3454,22 @@ getgenv().config = {
     SpawnDelay = 1.0,
 
     RagebotEnabled = false,
+    -- Sleepy Counter: TP al lado de la mano (lejitos) + auto head
+    SleepyCounterEnabled = false,
+    SleepyCounterSideDist = 14,   -- lejos de la mano
+    SleepyCounterHandY = 0.5,
+    SleepyCounterHeight = 1.2,
+    SleepyCounterFireRate = 0.02,
+    SleepyCounterTeamCheck = true,
+    SleepyCounterRange = 1e12,
+    -- Kicia Counter: anti kiciahook rage
+    KiciaCounterEnabled = false,
+    KiciaCounterSkyY = 450,          -- altura en el cielo
+    KiciaCounterLineWidth = 80,      -- ancho de la linea lado a lado
+    KiciaCounterMoveSpeed = 120,     -- studs/seg entre puntos
+    KiciaCounterFireRate = 0.015,
+    KiciaCounterTeamCheck = true,
+    KiciaCounterShoot = true,        -- seguir disparando a head mientras esta en cielo
     RageIndicatorEnabled = true,
     RageStatusEnabled = true,
     RageIndicatorSnapline = true,
@@ -3964,13 +4049,202 @@ function fireRageUseItem(item, desyncCF, targetHead, targetRoot)
     end)
 end
 
+-- ==================== SLEEPY COUNTER + KICIA COUNTER ====================
+local sleepyLastFire, kiciaLastFire = 0, 0
+local kiciaOrbitAng = 0
+
+local function counterPickTarget(teamCheck, maxRange)
+    local my = getHRP and getHRP() or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
+    if not my then return nil, nil, nil end
+    local best, bestD, bestHead, bestRoot = nil, maxRange or 1e12, nil, nil
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        if teamCheck and IsEnemy and not IsEnemy(plr) then continue end
+        if teamCheck and IsSameTeam and IsSameTeam(plr) then continue end
+        local char = plr.Character
+        if not char then continue end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local head = char:FindFirstChild("Head")
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not head or not root or hum.Health <= 0 then continue end
+        if char:FindFirstChildOfClass("ForceField") then continue end
+        local d = (my.Position - root.Position).Magnitude
+        if d < bestD then
+            bestD, best, bestHead, bestRoot = d, plr, head, root
+        end
+    end
+    return best, bestHead, bestRoot
+end
+
+local function getHandSideCFrame(root, head, sideDist, handY, height)
+    -- lado de la mano derecha del enemigo, LEJOS (no pegado)
+    local rf = root.CFrame
+    local right = rf.RightVector
+    local dist = tonumber(sideDist) or 14
+    local yOff = tonumber(handY) or 0.5
+    local h = tonumber(height) or 1.2
+    -- posición al lado de la mano (right * dist), ligeramente adelante
+    local handPos = root.Position + right * dist + rf.LookVector * 2 + Vector3.new(0, h + yOff, 0)
+    local look = head and head.Position or (root.Position + Vector3.new(0, 1.5, 0))
+    return CFrame.lookAt(handPos, look), handPos
+end
+
+function StartSleepyCounter()
+    SafeDisconnect("SleepyCounter")
+    config.SleepyCounterEnabled = true
+    Connections.SleepyCounter = RunService.Heartbeat:Connect(function()
+        if not config.SleepyCounterEnabled then return end
+        if not CanDoDangerousMove or not CanDoDangerousMove() then return end
+        if IsAntiUnnamedActive and IsAntiUnnamedActive() then return end
+        -- no pelear con rage normal / void al mismo tiempo si UE counter
+        local my = getHRP and getHRP()
+        if not my then return end
+        local teamCheck = config.SleepyCounterTeamCheck ~= false
+        local plr, head, root = counterPickTarget(teamCheck, config.SleepyCounterRange or 1e12)
+        if not plr or not head or not root then return end
+
+        local cf, pos = getHandSideCFrame(
+            root, head,
+            config.SleepyCounterSideDist or 14,
+            config.SleepyCounterHandY or 0.5,
+            config.SleepyCounterHeight or 1.2
+        )
+        -- body al lado de la mano (lejitos)
+        pcall(function()
+            my.CFrame = cf
+            my.AssemblyLinearVelocity = Vector3.zero
+        end)
+
+        -- auto fire cabeza
+        local rate = tonumber(config.SleepyCounterFireRate) or 0.02
+        if tick() - sleepyLastFire < rate then return end
+        sleepyLastFire = tick()
+        local lf = FighterController and FighterController.LocalFighter
+        local item = lf and lf.EquippedItem
+        if item and fireRageUseItem then
+            fireRageUseItem(item, cf, head, root)
+        end
+    end)
+    Notify("Sleepy Counter", "ON · lado mano + head")
+end
+
+function StopSleepyCounter()
+    config.SleepyCounterEnabled = false
+    SafeDisconnect("SleepyCounter")
+    Notify("Sleepy Counter", "OFF")
+end
+
+-- Kicia Counter: TP al CIELO, se mueve de lado a lado (linea), al OFF vuelve
+local kiciaSavedCF = nil
+local kiciaLineT = 0 -- 0..1 ping-pong
+local kiciaLineDir = 1
+local kiciaSkyOrigin = nil -- centro de la linea en el cielo
+
+function StartKiciaCounter()
+    SafeDisconnect("KiciaCounter")
+    config.KiciaCounterEnabled = true
+    kiciaLineT = 0.5
+    kiciaLineDir = 1
+    kiciaSavedCF = nil
+    kiciaSkyOrigin = nil
+
+    local my0 = getHRP and getHRP()
+    if my0 then
+        kiciaSavedCF = my0.CFrame
+        local skyY = tonumber(config.KiciaCounterSkyY) or 450
+        kiciaSkyOrigin = Vector3.new(my0.Position.X, my0.Position.Y + skyY, my0.Position.Z)
+        -- TP inicial al cielo (centro)
+        pcall(function()
+            my0.CFrame = CFrame.new(kiciaSkyOrigin)
+            my0.AssemblyLinearVelocity = Vector3.zero
+        end)
+    end
+
+    Connections.KiciaCounter = RunService.Heartbeat:Connect(function(dt)
+        if not config.KiciaCounterEnabled then return end
+        local my = getHRP and getHRP()
+        if not my then return end
+
+        -- si no hay origin (respawn), recrear desde pos actual
+        if not kiciaSkyOrigin then
+            if not kiciaSavedCF then kiciaSavedCF = my.CFrame end
+            local skyY = tonumber(config.KiciaCounterSkyY) or 450
+            kiciaSkyOrigin = Vector3.new(my.Position.X, (kiciaSavedCF and kiciaSavedCF.Position.Y or my.Position.Y) + skyY, my.Position.Z)
+        end
+
+        local width = tonumber(config.KiciaCounterLineWidth) or 80
+        local speed = tonumber(config.KiciaCounterMoveSpeed) or 120
+        -- avance en la linea (ping-pong 0..1)
+        local half = width * 0.5
+        -- studs por segundo / ancho total → delta de t
+        local span = math.max(width, 1)
+        kiciaLineT = kiciaLineT + (kiciaLineDir * (speed / span) * (dt or 0.016))
+        if kiciaLineT >= 1 then
+            kiciaLineT = 1
+            kiciaLineDir = -1
+        elseif kiciaLineT <= 0 then
+            kiciaLineT = 0
+            kiciaLineDir = 1
+        end
+        -- linea en eje X local del cielo (lado a lado)
+        local xOff = (kiciaLineT * 2 - 1) * half -- -half .. +half
+        local pos = kiciaSkyOrigin + Vector3.new(xOff, 0, 0)
+
+        -- mirar al target si hay (para disparar), si no mirar abajo
+        local look = pos + Vector3.new(0, -10, 0)
+        local teamCheck = config.KiciaCounterTeamCheck ~= false
+        local plr, head, root = counterPickTarget(teamCheck, 1e12)
+        if head then look = head.Position end
+
+        local cf = CFrame.lookAt(pos, look)
+        pcall(function()
+            my.CFrame = cf
+            my.AssemblyLinearVelocity = Vector3.zero
+            my.AssemblyAngularVelocity = Vector3.zero
+        end)
+
+        -- opcional: seguir pegando a la cabeza desde el cielo
+        if config.KiciaCounterShoot ~= false and head and root then
+            local rate = tonumber(config.KiciaCounterFireRate) or 0.015
+            if tick() - kiciaLastFire >= rate then
+                kiciaLastFire = tick()
+                local lf = FighterController and FighterController.LocalFighter
+                local item = lf and lf.EquippedItem
+                if item and fireRageUseItem then
+                    fireRageUseItem(item, cf, head, root)
+                end
+            end
+        end
+    end)
+    Notify("Kicia Counter", "ON · cielo + linea")
+end
+
+function StopKiciaCounter()
+    config.KiciaCounterEnabled = false
+    SafeDisconnect("KiciaCounter")
+    -- volver a donde estabas
+    local my = getHRP and getHRP()
+    if my and kiciaSavedCF then
+        pcall(function()
+            my.CFrame = kiciaSavedCF
+            my.AssemblyLinearVelocity = Vector3.zero
+        end)
+        Notify("Kicia Counter", "OFF · regresaste")
+    else
+        Notify("Kicia Counter", "OFF")
+    end
+    kiciaSkyOrigin = nil
+    -- no borrar saved hasta el next start
+end
+
 
 local Connections = {
     Main = nil, StickRender = nil, Fly = nil, AntiUnnamed = nil,
     Noclip = nil, AntiAim = nil, Ragebot = nil, AutoClick = nil,
     NoRecoil = nil, AUWatch = nil, ESP = nil, VisualLoop = nil,
     Aimbot = nil, AimbotInput = nil, AimbotInputEnd = nil, RapidFireChar = nil, VoidSpam = nil,
-    PredDodge = nil, Triggerbot = nil, SilentFOV = nil, FOVDraw = nil, Weather = nil, Defense = nil
+    PredDodge = nil, Triggerbot = nil, SilentFOV = nil, FOVDraw = nil, Weather = nil, Defense = nil,
+    SleepyCounter = nil, KiciaCounter = nil
 }
 
 local CurrentTarget, FakePart, RagebotTarget, LockedTarget
@@ -6266,25 +6540,66 @@ end
 -- loop rapido: leaderboard + lista + perfil
 task.spawn(function()
     while true do
-        task.wait(2.5)
+        task.wait(8) -- menos agresivo = menos lag
         if not config.SpoofEnabled then continue end
         if config.SpoofMyName then
             Spoof.forceLocalDisplay()
             Spoof.patchMyProfileUI()
-            -- applyNametags solo en respawn, no cada 2.5s (causaba doble name / racha)
+            pcall(PatchProfileStats) -- level/streak en perfil
         end
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr == LocalPlayer then continue end
-            local fake = Spoof.getName(plr)
-            local real = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
-            if fake ~= real then
-                if plr.Character then Spoof.applyNametags(plr.Character, fake) end
-                pcall(function()
-                    local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-                    if hum then hum.DisplayName = fake end
-                end)
+        -- no aplicar nametags a todos cada ciclo (lag)
+    end
+end)
+
+-- GC periódico: conexiones muertas + tablas que crecen
+task.spawn(function()
+    while true do
+        task.wait(45)
+        pcall(function()
+            local st = getgenv()._ShakoStates and getgenv()._ShakoStates.spoofer_state
+            if st and st.name_spoof_conn then
+                for obj, conn in pairs(st.name_spoof_conn) do
+                    if not obj or not obj.Parent then
+                        pcall(function() if conn then conn:Disconnect() end end)
+                        st.name_spoof_conn[obj] = nil
+                    end
+                end
             end
-        end
+            if st and st.thumb_spoof_conn then
+                for obj, conn in pairs(st.thumb_spoof_conn) do
+                    if not obj or not obj.Parent then
+                        pcall(function() if type(conn) == "userdata" and conn.Disconnect then conn:Disconnect() end end)
+                        st.thumb_spoof_conn[obj] = nil
+                    end
+                end
+            end
+            if Spoof and Spoof.tagged then
+                local n = 0
+                for obj in pairs(Spoof.tagged) do
+                    if not obj or not obj.Parent then
+                        Spoof.tagged[obj] = nil
+                    else
+                        n = n + 1
+                        if n > 400 then Spoof.tagged[obj] = nil end
+                    end
+                end
+            end
+            -- limpia HP cache de jugadores que salieron
+            if SFX and SFX.hp then
+                for plr in pairs(SFX.hp) do
+                    if typeof(plr) == "Instance" and not plr:IsDescendantOf(Players) then
+                        SFX.hp[plr] = nil
+                    end
+                end
+            end
+            -- limpia cache de nombres
+            if getgenv()._ShakoOtherNames and tick() - (getgenv()._ShakoOtherNamesAt or 0) > 60 then
+                getgenv()._ShakoOtherNames = nil
+            end
+        end)
+        pcall(function()
+            if collectgarbage then collectgarbage("step", 200) end
+        end)
     end
 end)
 -- UI nueva + cambios de texto (leaderboard/lista)
@@ -6295,6 +6610,10 @@ pcall(function()
         pg.DescendantAdded:Connect(function(obj)
             if not config.SpoofEnabled or not config.SpoofMyName then return end
             if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
+            -- throttle anti-lag
+            local now = tick()
+            if now - (getgenv()._ShakoSpoofAddAt or 0) < 0.05 then return end
+            getgenv()._ShakoSpoofAddAt = now
             task.defer(function()
                 Spoof.patchTextObject(
                     obj,
@@ -6303,6 +6622,11 @@ pcall(function()
                     tostring(config.SpoofMyNameValue),
                     Spoof.getMyUser()
                 )
+                -- si es UI de perfil, reaplicar stats
+                local pn = obj.Parent and obj.Parent.Name or ""
+                if pn == "Level" or pn == "Streak" or obj.Name == "Value" then
+                    pcall(PatchProfileStats)
+                end
             end)
         end)
     end
@@ -15261,6 +15585,8 @@ function Cfg.ApplyLoadedState()
         end)
         safe(function()
             if config.SlideBoostEnabled then StartSlideBoostLoop() end
+            if config.SleepyCounterEnabled then StartSleepyCounter() end
+            if config.KiciaCounterEnabled then StartKiciaCounter() end
             if config.AmbientSoundEnabled then StartAmbientSound() end
         end)
         safe(function()
@@ -15863,6 +16189,64 @@ SoftBox:AddToggle("FakePosition", {
 })
 
 -- RAGE FULL
+local CounterBox = Tabs.Rage:AddLeftGroupbox("Sleepy / Kicia Counter")
+CounterBox:AddToggle("SleepyCounterEnabled", {
+    Text = "Sleepy Counter", Default = false,
+    Callback = function(v)
+        if v then StartSleepyCounter() else StopSleepyCounter() end
+    end
+})
+CounterBox:AddSlider("SleepyCounterSideDist", {
+    Text = "Distancia lado mano", Default = 14, Min = 6, Max = 40, Rounding = 0,
+    Callback = function(v) config.SleepyCounterSideDist = v end
+})
+CounterBox:AddSlider("SleepyCounterHeight", {
+    Text = "Altura", Default = 1.2, Min = 0, Max = 8, Rounding = 1,
+    Callback = function(v) config.SleepyCounterHeight = v end
+})
+CounterBox:AddSlider("SleepyCounterFireRate", {
+    Text = "Fire rate", Default = 0.02, Min = 0, Max = 0.2, Rounding = 3,
+    Callback = function(v) config.SleepyCounterFireRate = v end
+})
+CounterBox:AddToggle("SleepyCounterTeamCheck", {
+    Text = "Team Check", Default = true,
+    Callback = function(v) config.SleepyCounterTeamCheck = v end
+})
+CounterBox:AddDivider()
+CounterBox:AddToggle("KiciaCounterEnabled", {
+    Text = "Kicia Counter (cielo)", Default = false,
+    Callback = function(v)
+        if v then StartKiciaCounter() else StopKiciaCounter() end
+    end
+})
+CounterBox:AddSlider("KiciaCounterSkyY", {
+    Text = "Altura cielo", Default = 450, Min = 50, Max = 2000, Rounding = 0,
+    Callback = function(v) config.KiciaCounterSkyY = v end
+})
+CounterBox:AddSlider("KiciaCounterLineWidth", {
+    Text = "Ancho linea (lado a lado)", Default = 80, Min = 20, Max = 300, Rounding = 0,
+    Callback = function(v) config.KiciaCounterLineWidth = v end
+})
+CounterBox:AddSlider("KiciaCounterMoveSpeed", {
+    Text = "Velocidad movimiento", Default = 120, Min = 20, Max = 500, Rounding = 0,
+    Callback = function(v) config.KiciaCounterMoveSpeed = v end
+})
+CounterBox:AddToggle("KiciaCounterShoot", {
+    Text = "Disparar a head desde cielo", Default = true,
+    Callback = function(v) config.KiciaCounterShoot = v end
+})
+CounterBox:AddSlider("KiciaCounterFireRate", {
+    Text = "Fire rate (cielo)", Default = 0.015, Min = 0, Max = 0.2, Rounding = 3,
+    Callback = function(v) config.KiciaCounterFireRate = v end
+})
+CounterBox:AddToggle("KiciaCounterTeamCheck", {
+    Text = "Team Check", Default = true,
+    Callback = function(v) config.KiciaCounterTeamCheck = v end
+})
+CounterBox:AddLabel("Kicia = TP cielo + linea lateral")
+CounterBox:AddLabel("Al OFF vuelve a tu posicion")
+CounterBox:AddLabel("Sleepy = lado mano lejitos + head")
+
 local RageBox = Tabs.Rage:AddLeftGroupbox("Rage UseItem Desync")
 RageBox:AddToggle("RagebotToggle", {
     Text = "Ragebot (UseItem)", Default = false,
@@ -18118,8 +18502,27 @@ pcall(function()
         pcall(RivalsApplyLeaderboard)
         pcall(function()
             if HookSeasonRankCharm then HookSeasonRankCharm() end
+            if getgenv()._ShakoHookCharm then getgenv()._ShakoHookCharm() end
         end)
         pcall(RivalsUpdateCharm)
+        -- AURORA-style: forzar ELO en leaderboard serial + atributo
+        pcall(function()
+            if getgenv()._ShakoUpdateLB then getgenv()._ShakoUpdateLB() end
+        end)
+        pcall(function()
+            LocalPlayer:SetAttribute("StatisticHighestELO", elo)
+            LocalPlayer:SetAttribute("HighestELO", elo)
+        end)
+        -- re-aplicar charm varias veces (UI carga tarde)
+        task.spawn(function()
+            for _ = 1, 5 do
+                task.wait(0.4)
+                pcall(function()
+                    if getgenv()._ShakoHookCharm then getgenv()._ShakoHookCharm() end
+                    if getgenv()._ShakoUpdateCharm then getgenv()._ShakoUpdateCharm() end
+                end)
+            end
+        end)
         Notify("Rank", (RankLabels[rankName] or rankName) .. " · ELO " .. tostring(elo) .. " · seasons ON")
     end
 
@@ -18767,12 +19170,13 @@ task.spawn(function()
     end)
 end)
 
-Notify("shako.win", "v5.28.6 · Obsidian UI")
-print("shako.win v5.28.6 Obsidian UI")
+Notify("shako.win", "v5.29.1 · Obsidian UI")
+print("shako.win v5.29.1 Obsidian UI")
 pcall(function() task.defer(function()
     getgenv()._ShakoQuiet = true
     pcall(Cfg.TryAutoLoad)
     task.wait(2)
     getgenv()._ShakoQuiet = false
 end) end)
+
 pcall(function() getgenv().shako_win_ok = true end)
