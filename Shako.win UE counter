@@ -595,14 +595,13 @@ local function ApplyNameSpoof(obj)
     if blocked[objName] or blockedParent[parentName] then
         -- Stats SOLO en TU UI (no perfiles / rachas de otros jugadores)
         local function isMyStatUI(o)
-            -- cache de nombres ajenos (1s) para no iterar Players cada label
-            if not getgenv()._ShakoOtherNames or tick() - (getgenv()._ShakoOtherNamesAt or 0) > 1 then
+            -- LIGERO: solo nombres en la jerarquia (sin GetDescendants = sin lag)
+            if not getgenv()._ShakoOtherNames or tick() - (getgenv()._ShakoOtherNamesAt or 0) > 2 then
                 local t = {}
                 for _, plr in ipairs(Players:GetPlayers()) do
                     if plr ~= LocalPlayer then
                         t[plr.Name] = true
                         if plr.DisplayName and plr.DisplayName ~= "" then t[plr.DisplayName] = true end
-                        t[tostring(plr.UserId)] = true
                     end
                 end
                 getgenv()._ShakoOtherNames = t
@@ -610,23 +609,35 @@ local function ApplyNameSpoof(obj)
             end
             local others = getgenv()._ShakoOtherNames or {}
             local realUser = LocalPlayer.Name
-            local realDisp = LocalPlayer.DisplayName
+            local realDisp = LocalPlayer.DisplayName or ""
             local uid = tostring(LocalPlayer.UserId)
+            local foundMe, foundOther = false, false
+            local chain = ""
             local p = o
-            for _ = 1, 10 do
+            for _ = 1, 8 do
                 if not p then break end
                 local n = p.Name or ""
-                if others[n] then return false end
-                if n == realUser or n == realDisp or n == uid then return true end
-                if n == "PlayerGui" or n == "LocalPlayer" then return true end
+                local nl = string.lower(n)
+                chain = chain .. " " .. nl
+                if others[n] then foundOther = true end
+                if n == realUser or n == realDisp or n == uid then foundMe = true end
+                if p == LocalPlayer or n == "PlayerGui" then break end
                 p = p.Parent
             end
-            -- solo atributos locales: permitir si parent chain esta bajo PlayerGui del local
-            local ok = false
-            pcall(function()
-                ok = o:IsDescendantOf(LocalPlayer:FindFirstChild("PlayerGui"))
-            end)
-            return ok
+            if foundOther then return false end
+            -- killfeed / cards de eliminacion: nunca
+            if chain:find("killfeed", 1, true) or chain:find("elimination", 1, true)
+                or chain:find("killcard", 1, true) or chain:find("deathcard", 1, true)
+                or chain:find("feedentry", 1, true) or chain:find("killercard", 1, true) then
+                return false
+            end
+            -- solo tu perfil / stats
+            if foundMe then return true end
+            if chain:find("profile", 1, true) or chain:find("career", 1, true)
+                or chain:find("self", 1, true) or chain:find("local", 1, true) then
+                return true
+            end
+            return false
         end
 
         if not isMyStatUI(obj) then
@@ -723,8 +734,15 @@ local function ApplyNameSpoof(obj)
 end
 
 local function RefreshAllNameSpoofs()
+    if tick() - (getgenv()._ShakoRefreshNamesAt or 0) < 0.5 then return end
+    getgenv()._ShakoRefreshNamesAt = tick()
+    local n = 0
     for obj in pairs(states.spoofer_state.name_spoof_conn) do
-        if obj and obj.Parent then ApplyNameSpoof(obj) end
+        if n > 80 then break end
+        if obj and obj.Parent then
+            pcall(ApplyNameSpoof, obj)
+            n = n + 1
+        end
     end
 end
 
@@ -739,6 +757,21 @@ local function RegisterTextObject(obj)
     if not allowed[obj.Name] then return end
     ApplyNameSpoof(obj)
     if states.spoofer_state.name_spoof_conn[obj] then return end
+    -- cap conexiones para no laggear
+    local cnt = 0
+    for _ in pairs(states.spoofer_state.name_spoof_conn) do
+        cnt = cnt + 1
+        if cnt > 120 then
+            -- limpiar muertos
+            for o, c in pairs(states.spoofer_state.name_spoof_conn) do
+                if not o or not o.Parent then
+                    pcall(function() if c then c:Disconnect() end end)
+                    states.spoofer_state.name_spoof_conn[o] = nil
+                end
+            end
+            break
+        end
+    end
     states.spoofer_state.name_spoof_conn[obj] = obj:GetPropertyChangedSignal("Text"):Connect(function()
         ApplyNameSpoof(obj)
     end)
@@ -2676,45 +2709,60 @@ function RivalsDeviceSpam(on)
 end
 
 function PatchProfileStats()
+    -- throttled + ligero (sin escanear todo el arbol cada vez)
+    if tick() - (getgenv()._ShakoPatchStatsAt or 0) < 1.5 then return end
+    getgenv()._ShakoPatchStatsAt = tick()
     local st = (getgenv()._ShakoStates and getgenv()._ShakoStates.spoofer_state) or (_st and _st())
     if not st or not st.leaderboard then return end
     local lb = st.leaderboard
-    if not (lb.Level or lb.Streak or lb.Wins or lb.Kills or lb.ELO) then return end
+    if not (lb.Level or lb.Streak or lb.Wins or lb.Kills) then return end
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if not pg then return end
+    local me = LocalPlayer.Name
+    local meD = LocalPlayer.DisplayName or ""
     local n = 0
-    for _, obj in ipairs(pg:GetDescendants()) do
-        if not (obj:IsA("TextLabel") or obj:IsA("TextButton")) then continue end
-        local t = obj.Text
-        if typeof(t) ~= "string" or t == "" then continue end
-        local on = obj.Name or ""
-        local pn = obj.Parent and obj.Parent.Name or ""
-        local chain = string.lower(on .. " " .. pn)
-        pcall(function()
+    -- solo mirar ScreenGuis de perfil, no todo PlayerGui
+    for _, gui in ipairs(pg:GetChildren()) do
+        if not gui:IsA("ScreenGui") and not gui:IsA("LayerCollector") then continue end
+        local gname = string.lower(gui.Name or "")
+        if gname:find("kill") or gname:find("feed") or gname:find("hud") or gname:find("cross") then
+            continue
+        end
+        for _, obj in ipairs(gui:GetDescendants()) do
+            if n > 25 then break end
+            if not (obj:IsA("TextLabel") or obj:IsA("TextButton")) then continue end
+            local t = obj.Text
+            if typeof(t) ~= "string" or not t:match("^%s*[%d%.,]+%s*$") then continue end
+            local on = obj.Name or ""
+            local pn = obj.Parent and obj.Parent.Name or ""
+            local chain = string.lower(on .. " " .. pn)
+            -- skip si parent chain tiene nombre ajeno (check rapido 4 niveles)
+            local other = false
             local p = obj.Parent
             for _ = 1, 5 do
                 if not p then break end
-                chain = chain .. " " .. string.lower(p.Name or "")
+                if p.Name == me or p.Name == meD then break end
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= LocalPlayer and p.Name == plr.Name then other = true break end
+                end
+                if other then break end
                 p = p.Parent
             end
-        end)
-        local isNum = t:match("^%s*[%d%.,]+%s*$") ~= nil
-        local want = nil
-        if lb.Level and isNum and (chain:find("level", 1, true) or (on == "Value" and pn == "Level"))
-            and not chain:find("winrate", 1, true) and not chain:find("weapon", 1, true) then
-            want = tostring(lb.level_value)
-        elseif lb.Streak and isNum and chain:find("streak", 1, true) then
-            want = tostring(lb.streak_value)
-        elseif lb.Wins and isNum and (chain:find("wins", 1, true) or on == "Wins") and not chain:find("winrate", 1, true) then
-            want = tostring(lb.wins_value)
-        elseif lb.Kills and isNum and chain:find("kill", 1, true) then
-            want = tostring(lb.kills_value)
+            if other then continue end
+            local want = nil
+            if lb.Level and (chain:find("level", 1, true) or (on == "Value" and pn == "Level")) then
+                want = tostring(lb.level_value)
+            elseif lb.Streak and chain:find("streak", 1, true) then
+                want = tostring(lb.streak_value)
+            elseif lb.Wins and chain:find("wins", 1, true) and not chain:find("winrate", 1, true) then
+                want = tostring(lb.wins_value)
+            end
+            if want and t ~= want then
+                pcall(function() obj.Text = want end)
+                n = n + 1
+            end
         end
-        if want and t ~= want then
-            pcall(function() obj.Text = want end)
-            n = n + 1
-        end
-        if n > 40 then break end
+        if n > 25 then break end
     end
 end
 
@@ -2738,10 +2786,7 @@ function RivalsApplyLeaderboard()
         Notify("LB", "attrs only")
     end
     task.defer(function()
-        pcall(PatchProfileStats)
-        task.wait(0.4)
-        pcall(PatchProfileStats)
-        task.wait(1.0)
+        task.wait(0.3)
         pcall(PatchProfileStats)
     end)
 end
