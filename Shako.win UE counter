@@ -1,4 +1,4 @@
--- shako.win | Rivals HVH v5.28.3 · LuaHook ESP + silent
+-- shako.win | Rivals HVH v5.28.6 · LuaHook ESP + silent
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -129,7 +129,7 @@ do
     local ok, win = pcall(function()
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v5.28.3 · Rivals HVH",
+            Footer = "v5.28.6 · Rivals HVH",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -5158,7 +5158,7 @@ end
 local SoundService = game:GetService("SoundService")
 local SFX = {
     -- rbxassetid from Grief.cc soundsassets (robados)
-    hit = {
+    hitSounds = {
         ["Rust HS"]           = 5043539486,
         ["Neverlose"]         = 97643101798871,
         ["Minecraft Bow"]     = 3442683707,
@@ -5214,7 +5214,7 @@ local SFX = {
         ["Boom Headshot"]     = 7361085557,
         ["Quake Hit"]         = 1455817260,
     },
-    kill = {
+    killSounds = {
         ["OOF"]           = 15666462,
         ["New Death"]     = 9118823103,
         ["Wake Up Bozo"]  = 9042248317,
@@ -5251,18 +5251,20 @@ SFX.FALLBACK_HIT = 12222216
 SFX.FALLBACK_KILL = 15666462
 -- remap nombres populares a IDs que sí suenan
 pcall(function()
-    SFX.hit = SFX.hit or {}
-    SFX.hit["Rust HS"] = 12222216
-    SFX.hit["Neverlose"] = 12222216
-    SFX.hit["Never Lose"] = 12222216
-    SFX.hit["TF2 Critical"] = 296102734
-    SFX.hit["TF2 Crit"] = 296102734
-    SFX.hit["Click"] = 12222216
-    SFX.hit["CSGO"] = 5764885315
-    SFX.hit["Skeet"] = 5633695679
-    SFX.kill = SFX.kill or {}
-    SFX.kill["OOF"] = 15666462
-    SFX.kill["Fatality"] = 6534947869
+    SFX.hitSounds = SFX.hitSounds or {}
+    SFX.hitSounds["Rust HS"] = 12222216
+    SFX.hitSounds["Neverlose"] = 12222216
+    SFX.hitSounds["Never Lose"] = 12222216
+    SFX.hitSounds["TF2 Critical"] = 296102734
+    SFX.hitSounds["TF2 Crit"] = 296102734
+    SFX.hitSounds["Click"] = 12222216
+    SFX.hitSounds["CSGO"] = 5764885315
+    SFX.hitSounds["Skeet"] = 5633695679
+    SFX.hitSounds["Laser"] = 7837461331
+    SFX.hitSounds["Lazer"] = 130791043
+    SFX.killSounds = SFX.killSounds or {}
+    SFX.killSounds["OOF"] = 15666462
+    SFX.killSounds["Fatality"] = 6534947869
 end)
 
 function SFX.play(id, vol, pitch)
@@ -5315,13 +5317,13 @@ end
 function SFX.hit()
     if not config.HitSoundEnabled then return end
     local now = tick()
-    if now - (SFX.lastHit or 0) < (tonumber(config.HitSoundCooldown) or 0.02) then return end
+    if now - (SFX.lastHit or 0) < (tonumber(config.HitSoundCooldown) or 0.08) then return end
     SFX.lastHit = now
     local name = config.SelectedHitSound or "Rust HS"
     if config.HitSoundMode == "Random" and SFX.hitNames and #SFX.hitNames > 0 then
         name = SFX.hitNames[math.random(1, #SFX.hitNames)]
     end
-    local id = (SFX.hit and SFX.hit[name]) or SFX.FALLBACK_HIT
+    local id = (SFX.hitSounds and SFX.hitSounds[name]) or SFX.FALLBACK_HIT
     SFX.play(id, config.HitSoundVolume or 7, config.HitSoundPitch or 1)
 end
 
@@ -5334,7 +5336,7 @@ function SFX.kill()
     if config.KillSoundMode == "Random" and SFX.killNames and #SFX.killNames > 0 then
         name = SFX.killNames[math.random(1, #SFX.killNames)]
     end
-    local id = (SFX.kill and SFX.kill[name]) or SFX.FALLBACK_KILL
+    local id = (SFX.killSounds and SFX.killSounds[name]) or SFX.FALLBACK_KILL
     SFX.play(id, config.KillSoundVolume or 8, config.KillSoundPitch or 1)
 end
 
@@ -5360,7 +5362,7 @@ task.spawn(function()
                 if config.HitSoundMode == "Random" then
                     name = SFX.hitNames[math.random(1, #SFX.hitNames)]
                 end
-                local id = SFX.hit[name]
+                local id = SFX.hitSounds[name]
                 if id then
                     pcall(function()
                         local vol = (config.HitSoundVolume or 2)
@@ -5390,15 +5392,24 @@ end)
 local function sfxOnDamage(plr, newHp, oldHp)
     if not plr or plr == LocalPlayer then return end
     if not (config.HitSoundEnabled or config.KillSoundEnabled) then return end
-    -- no filtrar por team aquí: si le bajaste vida, suena
     oldHp = tonumber(oldHp) or SFX.hp[plr]
     newHp = tonumber(newHp)
     if newHp == nil then return end
-    if oldHp ~= nil and newHp < oldHp - 0.15 then
+    -- ignorar micro cambios / regeneración / sync al equipar
+    if oldHp == nil then
+        SFX.hp[plr] = newHp
+        return
+    end
+    local drop = oldHp - newHp
+    -- kill
+    if oldHp > 0 and newHp <= 0 then
+        if config.KillSoundEnabled then SFX.kill() end
+        SFX.hp[plr] = newHp
+        return
+    end
+    -- hit real: bajó al menos ~2 HP (evita ruido de weapon switch / replicate)
+    if drop >= 2 then
         if config.HitSoundEnabled then SFX.hit() end
-        if newHp <= 0 and oldHp > 0 and config.KillSoundEnabled then SFX.kill() end
-    elseif oldHp and oldHp > 0 and newHp <= 0 and config.KillSoundEnabled then
-        SFX.kill()
     end
     SFX.hp[plr] = newHp
 end
@@ -5452,60 +5463,10 @@ task.spawn(function()
 end)
 
 
--- PlayerGui damage numbers (Rivals)
-pcall(function()
-    local function watchGui(gui)
-        if not gui then return end
-        gui.DescendantAdded:Connect(function(obj)
-            if not config.HitSoundEnabled then return end
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                local t = tostring(obj.Text or "")
-                if t:match("%d+") and (#t <= 6) then
-                    task.defer(function() SFX.hit() end)
-                end
-            elseif obj:IsA("BillboardGui") or obj:IsA("Frame") then
-                local n = string.lower(obj.Name or "")
-                if n:find("hit") or n:find("dmg") or n:find("damage") or n:find("marker") then
-                    task.defer(function() SFX.hit() end)
-                end
-            end
-        end)
-    end
-    local pg = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
-    if pg then watchGui(pg) end
-    LocalPlayer.ChildAdded:Connect(function(c)
-        if c:IsA("PlayerGui") or c.Name == "PlayerGui" then watchGui(c) end
-    end)
-end)
-
--- Grief-style: damage billboards también disparan hit sound
-pcall(function()
-    workspace.DescendantAdded:Connect(function(obj)
-        if not config.HitSoundEnabled then return end
-        if not obj:IsA("BillboardGui") then return end
-        local n = string.lower(obj.Name or "")
-        -- billboards de daño típicos
-        if n:find("damage", 1, true) or n:find("hit", 1, true) or n:find("dmg", 1, true) or n:find("number", 1, true) then
-            task.defer(function()
-                if obj and obj.Parent then SFX.hit() end
-            end)
-            return
-        end
-        -- texto numérico de daño
-        task.defer(function()
-            if not obj or not obj.Parent then return end
-            for _, d in ipairs(obj:GetDescendants()) do
-                if d:IsA("TextLabel") or d:IsA("TextButton") then
-                    local t = tostring(d.Text or "")
-                    if t:match("^%-?%d+") or t:match("%d+") then
-                        SFX.hit()
-                        return
-                    end
-                end
-            end
-        end)
-    end)
-end)
+-- GUI watchers DESACTIVADOS: al cambiar arma Rivals crea UI con números
+-- y disparaba hit sound sin parar. Solo usamos:
+-- 1) AURORA PlayHitmarkerSound (hit real del juego)
+-- 2) HealthChanged en enemigos (bajó vida de verdad)
 
 -- re-track HP on CharacterAdded (respawn)
 Players.PlayerAdded:Connect(function(plr)
@@ -6102,18 +6063,43 @@ function Spoof.clearAll()
 end
 function Spoof.applyNametags(char, fakeName)
     if not char or not fakeName then return end
+    -- SOLO labels de nombre. NUNCA racha / stats / billboards genéricos
+    -- (antes pisaba TODO y salía "Shako.win Shako.win" + racha con el name)
+    local allowName = {
+        DisplayName = true, PlayerName = true, NameLabel = true,
+        Username = true, Handle = true, HeaderText = true,
+    }
     pcall(function()
         for _, v in ipairs(char:GetDescendants()) do
-            if v:IsA("TextLabel") or v:IsA("TextButton") then
-                local t = v.Text or ""
-                if #t > 1 and not t:match("^%d+%%?$") and not t:match("^%[") then
-                    local lower = string.lower(t)
-                    if lower:find("hp") or lower:find("health") or lower:find("stud") or lower:find("level") or lower:find("win") then
-                        continue
-                    end
-                    v.Text = fakeName
-                end
+            if not (v:IsA("TextLabel") or v:IsA("TextButton")) then continue end
+            local on = v.Name or ""
+            local pn = v.Parent and v.Parent.Name or ""
+            local lowerN = string.lower(on .. " " .. pn)
+            -- bloquear racha / stats
+            if lowerN:find("streak", 1, true) or lowerN:find("racha", 1, true)
+                or lowerN:find("win", 1, true) or lowerN:find("kill", 1, true)
+                or lowerN:find("level", 1, true) or lowerN:find("elo", 1, true)
+                or lowerN:find("score", 1, true) or lowerN:find("stat", 1, true)
+                or on == "Value" or on == "Amount" or on == "Count" then
+                continue
             end
+            if not allowName[on] and pn ~= "NameContainer" and pn ~= "Title" and pn ~= "Subtitle" then
+                continue
+            end
+            local t = v.Text or ""
+            if t == "" or t:match("^%s*[%d%.,%%]+%s*$") then continue end
+            -- no tocar si ya es el fake (evita doble escritura)
+            if string.lower(t) == string.lower(fakeName) then continue end
+            if string.lower(t) == "@" .. string.lower(fakeName) then continue end
+            -- Username/Handle → @user si hay spoof de user, si no dejar
+            if on == "Username" or on == "Handle" or pn == "Subtitle" then
+                local fu = Spoof.getMyUser and Spoof.getMyUser() or fakeName
+                if t:sub(1,1) == "@" or on == "Handle" then
+                    v.Text = "@" .. tostring(fu):gsub("^@", "")
+                end
+                continue
+            end
+            v.Text = fakeName
         end
     end)
 end
@@ -6151,35 +6137,47 @@ function Spoof.patchTextObject(obj, realName, realDisplay, fakeDisplay, fakeUser
         obj.Text = fd
         return true
     end
-    -- match exacto Username
+    -- bloquear labels de racha/stats por nombre
+    local on = obj.Name or ""
+    local pn = obj.Parent and obj.Parent.Name or ""
+    local meta = string.lower(on .. " " .. pn)
+    if meta:find("streak", 1, true) or meta:find("racha", 1, true)
+        or on == "Value" or on == "Wins" or on == "Kills" or on == "Level" or on == "Streak" then
+        return false
+    end
+    -- match exacto Username → @fakeUser (NO el display name)
     if rn ~= "" and lower == rn then
-        obj.Text = fd
+        obj.Text = "@" .. tostring(fu):gsub("^@", "")
         return true
     end
     -- @username
     if rn ~= "" and lower == "@" .. rn then
-        obj.Text = "@" .. fu
+        obj.Text = "@" .. tostring(fu):gsub("^@", "")
         return true
     end
-    -- DisplayName @user juntos
+    -- DisplayName @user juntos (evitar duplicar si ya tiene fake)
     if rd ~= "" and rn ~= "" and lower:find(rd, 1, true) and lower:find(rn, 1, true) then
-        obj.Text = fd .. "\n@" .. fu
+        if lower:find(string.lower(fd), 1, true) then return false end
+        obj.Text = fd .. "\n@" .. tostring(fu):gsub("^@", "")
         return true
     end
-    -- contiene display name (leaderboard / lista)
-    if rd ~= "" and #rd >= 2 and lower:find(rd, 1, true) then
+    -- contiene display name (leaderboard / lista) — una sola vez
+    if rd ~= "" and #rd >= 2 and lower:find(rd, 1, true) and not lower:find(string.lower(fd), 1, true) then
         local ok, newT = pcall(function()
-            return t:gsub(esc(realDisplay), fd)
+            return t:gsub(esc(realDisplay), fd, 1)
         end)
         if ok and newT and newT ~= t then
             obj.Text = newT
             return true
         end
     end
-    -- contiene username
-    if rn ~= "" and #rn >= 2 and lower:find(rn, 1, true) then
+    -- contiene username → reemplazar por @user, no por display
+    if rn ~= "" and #rn >= 3 and lower:find(rn, 1, true) and not lower:find(string.lower(fu), 1, true) then
         local ok, newT = pcall(function()
-            return t:gsub(esc(realName), fd)
+            if t:find("@" .. realName, 1, true) then
+                return t:gsub(esc("@" .. realName), "@" .. tostring(fu):gsub("^@", ""), 1)
+            end
+            return t:gsub(esc(realName), tostring(fu):gsub("^@", ""), 1)
         end)
         if ok and newT and newT ~= t then
             obj.Text = newT
@@ -6273,9 +6271,7 @@ task.spawn(function()
         if config.SpoofMyName then
             Spoof.forceLocalDisplay()
             Spoof.patchMyProfileUI()
-            if LocalPlayer.Character then
-                Spoof.applyNametags(LocalPlayer.Character, tostring(config.SpoofMyNameValue))
-            end
+            -- applyNametags solo en respawn, no cada 2.5s (causaba doble name / racha)
         end
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr == LocalPlayer then continue end
@@ -18502,7 +18498,7 @@ SoundBox:AddButton({
     Text = "Test Hit Sound",
     Func = function()
         -- fuerza play aunque el toggle esté off (solo test)
-        local id = (SFX.hit and SFX.hit[config.SelectedHitSound or "Rust HS"]) or 12222216
+        local id = (SFX.hitSounds and SFX.hitSounds[config.SelectedHitSound or "Rust HS"]) or 12222216
         SFX.play(id, math.max(config.HitSoundVolume or 7, 5), config.HitSoundPitch or 1)
         Notify("Hit", "Test id=" .. tostring(id))
     end
@@ -18533,7 +18529,7 @@ SoundBox:AddButton({
     Func = function()
         task.spawn(function()
             for _, n in ipairs(SFX.hitNames) do
-                SFX.play(SFX.hit[n], 2)
+                SFX.play(SFX.hitSounds[n], 2)
                 Notify("Hit", n)
                 task.wait(0.7)
             end
@@ -18771,13 +18767,12 @@ task.spawn(function()
     end)
 end)
 
-Notify("shako.win", "v5.28.3 · Obsidian UI")
-print("shako.win v5.28.3 Obsidian UI")
+Notify("shako.win", "v5.28.6 · Obsidian UI")
+print("shako.win v5.28.6 Obsidian UI")
 pcall(function() task.defer(function()
     getgenv()._ShakoQuiet = true
     pcall(Cfg.TryAutoLoad)
     task.wait(2)
     getgenv()._ShakoQuiet = false
 end) end)
-
 pcall(function() getgenv().shako_win_ok = true end)
