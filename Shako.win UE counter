@@ -1,4 +1,4 @@
--- shako.win | Rivals HVH v5.29.7 · LuaHook ESP + silent
+-- shako.win | Rivals HVH v5.30.5 · Rivals only ESP + silent
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -12,6 +12,29 @@ if getgenv().antiSleepy_loaded then
     return
 end
 getgenv().antiSleepy_loaded = true
+
+-- ==================== SOLO RIVALS ====================
+-- GameId oficial de Rivals
+local RIVALS_GAME_ID = 6035872082
+local function notSupportedKick()
+    local msg = "this game not supported"
+    warn("[shako.win] " .. msg .. " | GameId=" .. tostring(game.GameId))
+    pcall(function()
+        local lp = game:GetService("Players").LocalPlayer
+        if lp then lp:Kick(msg) end
+    end)
+    -- si el kick no corre, forzar leave
+    pcall(function()
+        game:GetService("TeleportService"):Teleport(0) -- invalido = force exit intent
+    end)
+    getgenv().antiSleepy_loaded = false
+end
+
+if tonumber(game.GameId) ~= RIVALS_GAME_ID then
+    notSupportedKick()
+    return
+end
+-- =====================================================
 
 local function shakoFail(msg)
     warn("[shako]", msg)
@@ -3511,7 +3534,7 @@ getgenv().config = {
     KiciaCounterEnabled = false,
     KiciaCounterSkyY = 450,          -- altura en el cielo
     KiciaCounterLineWidth = 80,      -- ancho de la linea lado a lado
-    KiciaCounterMoveSpeed = 120,     -- studs/seg entre puntos
+    KiciaCounterMoveSpeed = 400,     -- studs/seg entre puntos (rapido)
     KiciaCounterFireRate = 0.015,
     KiciaCounterTeamCheck = true,
     KiciaCounterShoot = true,        -- seguir disparando a head mientras esta en cielo
@@ -4255,7 +4278,7 @@ function StartKiciaCounter()
         end
 
         local width = tonumber(config.KiciaCounterLineWidth) or 80
-        local speed = tonumber(config.KiciaCounterMoveSpeed) or 120
+        local speed = tonumber(config.KiciaCounterMoveSpeed) or 400
         -- avance en la linea (ping-pong 0..1)
         local half = width * 0.5
         -- studs por segundo / ancho total → delta de t
@@ -8391,6 +8414,7 @@ StartRagebot = function()
         if config.RageSkipDeflect and deflecting[target] then return end
 
         local lookPos = PredictPos(root, head)
+
         local desyncPos
         if hasKnifeViewModel(target) then
             desyncPos = (root.CFrame * CFrame.new(0, config.RageDesyncKnifeY or 6, 0)).Position
@@ -16413,7 +16437,7 @@ CounterBox:AddSlider("KiciaCounterLineWidth", {
     Callback = function(v) config.KiciaCounterLineWidth = v end
 })
 CounterBox:AddSlider("KiciaCounterMoveSpeed", {
-    Text = "Velocidad movimiento", Default = 120, Min = 20, Max = 500, Rounding = 0,
+    Text = "Velocidad movimiento", Default = 400, Min = 50, Max = 2500, Rounding = 0,
     Callback = function(v) config.KiciaCounterMoveSpeed = v end
 })
 CounterBox:AddToggle("KiciaCounterShoot", {
