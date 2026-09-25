@@ -1,4 +1,4 @@
--- shako.win | Rivals HVH v5.29.1 · LuaHook ESP + silent
+-- shako.win | Rivals HVH v5.29.7 · LuaHook ESP + silent
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -129,7 +129,7 @@ do
     local ok, win = pcall(function()
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v5.29.1 · Rivals HVH",
+            Footer = "v5.29.7 · Rivals HVH",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -3484,6 +3484,9 @@ getgenv().config = {
     RagebotRange = math.huge,
     RagebotInfiniteRange = true,
     RagebotTeamCheck = true,
+    RagebotForceFFA = false,
+ -- true = siempre FFA (ignora team)
+    RagebotForceFFA = false,
     RagebotPriorityHP = true,
     RagebotSkipFF = true,
     RagebotLookAtHead = false,
@@ -3665,6 +3668,11 @@ getgenv().config = {
     SoftStick = true,
     SoftStickSpeed = 180,
     SoftStickMaxStep = 5,
+    -- TP atras del enemigo (sin delay)
+    StickBehindTP = false,
+    StickBehindDist = 10,   -- offset atras del enemigo
+    StickBehindHeight = 1.5,
+    StickBehindRange = math.huge, -- alcance infinito para TP
     CameraIndependent = true,
     BlockIllegalNotify = true,
 
@@ -3996,12 +4004,41 @@ function updateDeflection()
     end
 end
 
+-- FFA: si casi todos comparten el mismo TeamID → Free For All
+function isFFAMode()
+    if config.RagebotForceFFA then return true end
+    local teams, alive = {}, 0
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        if not plr.Character then continue end
+        local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then continue end
+        alive = alive + 1
+        local tid = getPlayerTeamId and getPlayerTeamId(plr) or nil
+        -- nil / 0 / "0" / "FFA" cuentan como FFA-ish
+        local key = (tid == nil or tid == "0" or tid == "nil" or tid == "FFA") and "__ffa" or tostring(tid)
+        teams[key] = true
+    end
+    if alive <= 1 then return true end
+    local unique = 0
+    for _ in pairs(teams) do unique = unique + 1 end
+    -- un solo "equipo" en el server = Free For All
+    if unique <= 1 then return true end
+    return false
+end
+
 function isEnemyRageRivals(player)
     if not player or player == LocalPlayer then return false end
-    -- Team check OFF = atacar a todos
+    if not player.Character then return false end
+    -- Team check OFF o FFA forzado = atacar a todos
     if config.RagebotTeamCheck == false then return true end
-    -- Mismo sistema que anti Sleepy (TeamID / Duel / Fighter / Team)
-    return IsEnemy(player)
+    if config.RagebotForceFFA == true then return true end
+    -- auto FFA (Rivals Free For All suele poner el mismo TeamID a todos)
+    if isFFAMode() then return true end
+    -- ranked / teams: solo enemigos reales
+    -- NO usar config.TeamCheck global (rompe rage en FFA)
+    if IsSameTeam and IsSameTeam(player) then return false end
+    return true
 end
 
 function hasKnifeViewModel(targetPlayer)
@@ -4238,13 +4275,15 @@ function StopKiciaCounter()
 end
 
 
+
+
 local Connections = {
     Main = nil, StickRender = nil, Fly = nil, AntiUnnamed = nil,
     Noclip = nil, AntiAim = nil, Ragebot = nil, AutoClick = nil,
     NoRecoil = nil, AUWatch = nil, ESP = nil, VisualLoop = nil,
     Aimbot = nil, AimbotInput = nil, AimbotInputEnd = nil, RapidFireChar = nil, VoidSpam = nil,
     PredDodge = nil, Triggerbot = nil, SilentFOV = nil, FOVDraw = nil, Weather = nil, Defense = nil,
-    SleepyCounter = nil, KiciaCounter = nil
+    SleepyCounter = nil, KiciaCounter = nil, StickBehind = nil
 }
 
 local CurrentTarget, FakePart, RagebotTarget, LockedTarget
@@ -4457,6 +4496,16 @@ function IsSameTeam(plr)
 
     local lTeam = getPlayerTeamId(LocalPlayer)
     local pTeam = getPlayerTeamId(plr)
+
+    -- TeamID 0 / vacio = FFA, no son teammates
+    local function isFFAId(t)
+        if t == nil then return true end
+        local s = tostring(t)
+        return s == "0" or s == "" or s == "nil" or s == "FFA" or s == "None"
+    end
+    if isFFAId(lTeam) or isFFAId(pTeam) then
+        return false
+    end
 
     if lTeam ~= nil and pTeam ~= nil then
         return lTeam == pTeam
@@ -4952,14 +5001,17 @@ function MoveBodyTo(goal, lookAt)
             myHRP.AssemblyAngularVelocity = Vector3.zero
         end
     end
-    local soft = config.SoftStick and not (config.RageDesync and config.RagebotEnabled)
+    -- desync / SoftStick OFF = instant
+    local forceInstant = (config.RageDesync and config.RagebotEnabled)
+        or config.SoftStick == false
+    local soft = config.SoftStick and not forceInstant
     if soft and dist > 0.08 then
         local maxStep = math.max(config.SoftStickMaxStep or 5, 0.5)
         local speed = config.SoftStickSpeed or 180
         local step = math.min(dist, maxStep, speed / 60)
         setAt(current + delta.Unit * step)
     else
-        setAt(goal)
+        setAt(goal) -- instant
     end
 end
 
@@ -4977,6 +5029,58 @@ function SafeEnemyCFrame(root, extraY, sideX, sideZ, lookAt)
     if y < minY then y = minY + 1 end
     MoveBodyTo(Vector3.new(base.X + ox, y, base.Z + oz), lookAt)
 end
+
+-- ==================== TP ATRAS (INDEPENDIENTE DEL RAGE) ====================
+function StartStickBehindTP()
+    SafeDisconnect("StickBehind")
+    config.StickBehindTP = true
+    Connections.StickBehind = RunService.Heartbeat:Connect(function()
+        if not config.StickBehindTP then return end
+        if CanDoDangerousMove and not CanDoDangerousMove() then return end
+        local my = getHRP and getHRP()
+        if not my then return end
+        local maxR = config.StickBehindRange
+        if maxR == nil or maxR ~= maxR or maxR <= 0 then maxR = math.huge end -- nil/nan = infinito
+        local best, bestD = nil, maxR
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == LocalPlayer then continue end
+            local char = plr.Character
+            if not char then continue end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if not hum or not root or hum.Health <= 0 then continue end
+            if IsEnemy and not IsEnemy(plr) then continue end
+            local d = (my.Position - root.Position).Magnitude
+            if d <= maxR and d < bestD then bestD, best = d, plr end
+        end
+        if not best or not best.Character then return end
+        local root = best.Character:FindFirstChild("HumanoidRootPart")
+        local head = best.Character:FindFirstChild("Head")
+        if not root then return end
+        local dist = tonumber(config.StickBehindDist) or 10
+        local h = tonumber(config.StickBehindHeight) or 1.5
+        local look = root.CFrame.LookVector
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude > 0.05 then flat = flat.Unit else flat = Vector3.new(0, 0, 1) end
+        local pos = root.Position - flat * dist + Vector3.new(0, h, 0)
+        local minY = workspace.FallenPartsDestroyHeight + (config.SafeZoneMinY or 30)
+        if pos.Y < minY then pos = Vector3.new(pos.X, minY + 1, pos.Z) end
+        local lookAt = head and head.Position or (root.Position + Vector3.new(0, 1.5, 0))
+        pcall(function()
+            my.CFrame = CFrame.lookAt(pos, lookAt)
+            my.AssemblyLinearVelocity = Vector3.zero
+            my.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end)
+    Notify("TP Atras", "ON")
+end
+
+function StopStickBehindTP()
+    config.StickBehindTP = false
+    SafeDisconnect("StickBehind")
+    Notify("TP Atras", "OFF")
+end
+
 
 function SyncAimOnShoot(headPos)
     return
@@ -8205,7 +8309,23 @@ StartRagebot = function()
     Connections.Ragebot = RunService.Heartbeat:Connect(function()
         if not config.RagebotEnabled or not CanDoDangerousMove() or IsAntiUnnamedActive() then return end
         if config.VoidSpamEnabled and not config.VoidRage then return end
-        if not modulesOK then return end
+        if not modulesOK then
+            if tick() - (getgenv()._ShakoRageModTry or 0) > 2.5 then
+                getgenv()._ShakoRageModTry = tick()
+                pcall(function()
+                    if not util then util = require(RS.Modules.Utility) end
+                    if not enum then enum = require(RS.Modules.EnumLibrary) end
+                    if not FighterController then
+                        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+                        local c = ps and ps:FindFirstChild("Controllers")
+                        local fc = c and c:FindFirstChild("FighterController")
+                        if fc then FighterController = require(fc) end
+                    end
+                    modulesOK = (util ~= nil) and (enum ~= nil)
+                end)
+            end
+            if not modulesOK then return end
+        end
 
         updateDeflection()
         EnsureCameraFree()
@@ -15544,7 +15664,12 @@ function Cfg.ApplyLoadedState()
             else SafeDisconnect("Main"); SafeDisconnect("StickRender") end
         end)
         safe(function()
-            if config.RagebotEnabled then StartRagebot() else StopRagebot() end
+            if config.RagebotEnabled then
+                StartRagebot()
+            else
+                StopRagebot()
+                pcall(function() RunService:UnbindFromRenderStep("__as_rage_restore") end)
+            end
         end)
         safe(function()
             if config.VoidSpamEnabled then StartVoidSpam() else StopVoidSpam() end
@@ -15584,10 +15709,25 @@ function Cfg.ApplyLoadedState()
             if config.JumpPowerEnabled then ApplyJumpState() end
         end)
         safe(function()
-            if config.SlideBoostEnabled then StartSlideBoostLoop() end
-            if config.SleepyCounterEnabled then StartSleepyCounter() end
-            if config.KiciaCounterEnabled then StartKiciaCounter() end
-            if config.AmbientSoundEnabled then StartAmbientSound() end
+            if config.SlideBoostEnabled then StartSlideBoostLoop() else pcall(StopSlideBoostLoop) end
+            if config.SleepyCounterEnabled then StartSleepyCounter() else pcall(StopSleepyCounter) end
+            if config.KiciaCounterEnabled then StartKiciaCounter() else pcall(StopKiciaCounter) end
+            if config.StickBehindTP then StartStickBehindTP() else pcall(StopStickBehindTP) end
+            if config.AmbientSoundEnabled then StartAmbientSound() else pcall(StopAmbientSound) end
+        end)
+        -- Anti-Rager / Defense: DEBE apagarse al cargar legit
+        safe(function()
+            if type(anyDefenseOn) == "function" and anyDefenseOn() then
+                StartDefense()
+            else
+                pcall(StopDefense)
+                -- forzar flags off si no vienen en config
+                if config.RagerCombo == nil then config.RagerCombo = false end
+                if not config.OrbitEvade and not config.HeightJitter and not config.AntiHeadTP
+                    and not config.StrafePattern and not config.FakePeek and not config.RagerCombo then
+                    pcall(StopDefense)
+                end
+            end
         end)
         safe(function()
             if config.StretchedRes then ApplyStretchedRes() end
@@ -16256,6 +16396,14 @@ RageBox:AddToggle("RagebotToggle", {
         if v then StartRagebot() Notify("Rage", "UseItem Desync ON") else StopRagebot() end
     end
 })
+RageBox:AddToggle("RagebotForceFFA", {
+    Text = "Force FFA (ignora team)", Default = false,
+    Callback = function(v)
+        config.RagebotForceFFA = v
+        Notify("Rage", v and "FFA ON — ataca a todos" or "FFA auto")
+    end
+})
+RageBox:AddLabel("Free For All: activa Force FFA si no pega")
 RageBox:AddToggle("RageIndicatorEnabled", {
     Text = "Rage Indicator (Grief)", Default = true,
     Callback = function(v) config.RageIndicatorEnabled = v end
@@ -16369,6 +16517,21 @@ RageBox:AddSlider("RagebotOffsetZ", {
 RageBox:AddToggle("RagebotTeamCheck", {
     Text = "Team Check (Rage)", Default = true,
     Callback = function(v) config.RagebotTeamCheck = v end
+})
+RageBox:AddToggle("StickBehindTP", {
+    Text = "TP Atras (sin delay)", Default = false,
+    Callback = function(v)
+        if v then StartStickBehindTP() else StopStickBehindTP() end
+    end
+})
+RageBox:AddSlider("StickBehindDist", {
+    Text = "Distancia atras (offset)", Default = 10, Min = 3, Max = 100, Rounding = 0,
+    Callback = function(v) config.StickBehindDist = v end
+})
+RageBox:AddLabel("Alcance TP = infinito (mapa entero)")
+RageBox:AddSlider("StickBehindHeight", {
+    Text = "Altura atras", Default = 1.5, Min = 0, Max = 12, Rounding = 1,
+    Callback = function(v) config.StickBehindHeight = v end
 })
 RageBox:AddToggle("RagebotPredict", {
     Text = "Predict", Default = true,
@@ -19170,8 +19333,8 @@ task.spawn(function()
     end)
 end)
 
-Notify("shako.win", "v5.29.1 · Obsidian UI")
-print("shako.win v5.29.1 Obsidian UI")
+Notify("shako.win", "v5.29.7 · Obsidian UI")
+print("shako.win v5.29.7 Obsidian UI")
 pcall(function() task.defer(function()
     getgenv()._ShakoQuiet = true
     pcall(Cfg.TryAutoLoad)
