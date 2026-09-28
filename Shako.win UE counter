@@ -1,4 +1,4 @@
--- shako.win | Rivals HVH v5.30.5 · Rivals only ESP + silent
+-- shako.win | Rivals HVH v5.32.14 · Obsidian · lagfix · spoof tab
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -72,55 +72,40 @@ local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library, ThemeManager, SaveManager
 
 local function httpGet(url)
-    for _ = 1, 3 do
-        local ok, body = pcall(function() return game:HttpGet(url) end)
-        if ok and type(body) == "string" and #body > 100 then return body end
-        task.wait(0.35)
-    end
+    local ok, body = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if ok and body and #body > 100 then return body end
     return nil
 end
 
-local function try_load(path, fallback_url)
-    local body = nil
-    pcall(function()
-        if readfile then body = readfile(path) end
-    end)
-    if (not body or #body < 100) and fallback_url then
-        body = httpGet(fallback_url)
-        if body and writefile then pcall(writefile, path, body) end
-    end
-    if not body or #body < 100 then return nil end
-    local ok, fn = pcall(loadstring, body)
-    if not ok or not fn then return nil end
-    local ok2, result = pcall(fn)
-    return ok2 and result or nil
+local function try_load(url)
+    local body = httpGet(url)
+    if not body then return nil end
+    local ok, res = pcall(function() return loadstring(body)() end)
+    if ok and res then return res end
+    return nil
 end
 
-Library = try_load("Obsidian-Library.lua", repo .. "Library.lua")
-ThemeManager = try_load("Obsidian-ThemeManager.lua", repo .. "addons/ThemeManager.lua")
-SaveManager  = try_load("Obsidian-SaveManager.lua", repo .. "addons/SaveManager.lua")
+-- Obsidian first (única UI)
+Library = try_load(repo .. "Library.lua")
+ThemeManager = try_load(repo .. "addons/ThemeManager.lua")
+SaveManager = try_load(repo .. "addons/SaveManager.lua")
 
+-- retry once si falló
 if not Library then
-    pcall(function()
-        local b = httpGet(repo .. "Library.lua")
-        if b then Library = loadstring(b)() end
-    end)
+    task.wait(0.4)
+    Library = try_load(repo .. "Library.lua")
 end
 if not ThemeManager then
-    pcall(function()
-        local b = httpGet(repo .. "addons/ThemeManager.lua")
-        if b then ThemeManager = loadstring(b)() end
-    end)
+    ThemeManager = try_load(repo .. "addons/ThemeManager.lua")
 end
 if not SaveManager then
-    pcall(function()
-        local b = httpGet(repo .. "addons/SaveManager.lua")
-        if b then SaveManager = loadstring(b)() end
-    end)
+    SaveManager = try_load(repo .. "addons/SaveManager.lua")
 end
 
 if not Library or type(Library.CreateWindow) ~= "function" then
-    shakoFail("Obsidian no cargó (red) — vuelve a ejecutar")
+    shakoFail("Obsidian no cargó — revisa internet / executor")
     return
 end
 
@@ -150,9 +135,18 @@ end
 local Window
 do
     local ok, win = pcall(function()
+        -- ventana mas ancha + fuente limpia (no Code)
+        pcall(function()
+            Library.Font = Enum.Font.Gotham
+            if Library.SetFontSize then
+                Library:SetFontSize(13)
+            else
+                Library.FontSize = 13
+            end
+        end)
         return Library:CreateWindow({
-            Title = "shako.win",
-            Footer = "v5.29.7 · Rivals HVH",
+            Title = "shako.win  |  Rivals",
+            Footer = "v5.32.14 · Obsidian",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -167,16 +161,42 @@ do
     Window = win
 end
 
--- silenciar notificaciones de la UI también
+-- Forzar label Rivals (no Marketplace)
+pcall(function()
+    if Library.SetWatermark then
+        Library:SetWatermark("shako.win · Rivals")
+    end
+    if Library.Watermark then
+        pcall(function() Library.Watermark.Text = "shako.win · Rivals" end)
+    end
+end)
+
+-- silenciar notificaciones de la UI (menos Config)
 pcall(function()
     if Library and Library.Notify then
-        Library.Notify = function(...) end
+        getgenv()._ShakoLibraryNotify = Library.Notify
+        Library.Notify = function(self, data)
+            -- bloquear spam de toggles; configs usan Notify() → StarterGui
+            return
+        end
     end
 end)
 
 function Notify(title, text)
-    -- notificaciones desactivadas (silencio total)
-    return
+    if tostring(title) ~= "Config" then return end
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Config",
+            Text = tostring(text or ""),
+            Duration = 3,
+        })
+    end)
+    pcall(function()
+        local fn = getgenv()._ShakoLibraryNotify
+        if type(fn) == "function" then
+            fn(Library, { Title = "Config", Description = tostring(text or ""), Time = 3 })
+        end
+    end)
 end
 getgenv()._ShakoBootAt = tick()
 
@@ -985,13 +1005,32 @@ local function ApplyFakeHead(character, source_head)
 end
 
 local function SetAvatar(use_old)
+    -- Vnix.lol style: HumanoidDescription primero (ropa + accesorios estables)
     local uid = use_old and LocalPlayer.UserId or states.spoofer_state.avatar_userid
     if not uid then return end
+    uid = tonumber(uid) or uid
     if not LocalChar or not LocalChar.Parent then LocalChar = GetCharacter() end
+    if not LocalChar then return end
+    local hum = LocalChar:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
 
+    local okDesc, desc = pcall(function()
+        return Players:GetHumanoidDescriptionFromUserId(uid)
+    end)
+    if okDesc and desc then
+        pcall(function()
+            if hum.ApplyDescriptionReset then
+                hum:ApplyDescriptionReset(desc)
+            else
+                hum:ApplyDescription(desc)
+            end
+        end)
+        return
+    end
+
+    -- fallback: clone model (viejo metodo)
     local ok, rig = pcall(function() return Players:CreateHumanoidModelFromUserId(uid) end)
     if not ok or not rig then return end
-
     for _, v in ipairs(LocalChar:GetDescendants()) do
         if v:IsA("Accessory") or v:IsA("Shirt") or v:IsA("Pants") or v:IsA("ShirtGraphic")
             or v:IsA("BodyColors") or v:IsA("CharacterMesh") or v:IsA("LayeredClothing")
@@ -999,7 +1038,6 @@ local function SetAvatar(use_old)
             pcall(function() v:Destroy() end)
         end
     end
-
     for _, item in ipairs(rig:GetChildren()) do
         if item:IsA("Accessory") then
             pcall(function() AddAccoutrement(LocalChar, item:Clone()) end)
@@ -1008,7 +1046,6 @@ local function SetAvatar(use_old)
             pcall(function() item:Clone().Parent = LocalChar end)
         end
     end
-
     local head = FindHeadPart(rig)
     if head then ApplyFakeHead(LocalChar, head) end
     pcall(function() rig:Destroy() end)
@@ -1934,8 +1971,14 @@ local function UpdateMarketplace()
             marketplace_asset_id = 0
         end)
 
-        RunService.Heartbeat:Connect(function()
-            OverlayButton.Position = UDim2.fromOffset(BuyButton.AbsolutePosition.X, BuyButton.AbsolutePosition.Y + BuyButton.AbsoluteSize.Y + (BuyButton.AbsoluteSize.Y / 2))
+        -- OPT: no Heartbeat cada frame para overlay
+        task.spawn(function()
+            while OverlayButton and OverlayButton.Parent and BuyButton and BuyButton.Parent do
+                pcall(function()
+                    OverlayButton.Position = UDim2.fromOffset(BuyButton.AbsolutePosition.X, BuyButton.AbsoluteSize.Y and (BuyButton.AbsolutePosition.Y + BuyButton.AbsoluteSize.Y + BuyButton.AbsoluteSize.Y / 2) or BuyButton.AbsolutePosition.Y)
+                end)
+                task.wait(0.2)
+            end
         end)
 
         task.wait(3)
@@ -3439,13 +3482,15 @@ getgenv().config = {
     TargetLock = false,
     FakePosition = true,
     FakePosStrength = 8,
-    HitboxExpand = true,
+    HitboxExpand = false,
     HitboxSize = 16,
 
     -- UE Counter (ex Anti Unnamed)
     UECounterEnabled = false,
     UECounterY = 500,
     UECounterCooldown = 0.2,
+    UECounterHideDist = 500, -- hide / void height
+    UECounterAttackSpeed = 1, -- velocidad ataque/reposición
     AntiUnnamed = false, -- alias de UECounterEnabled (otros sistemas)
 
     AntiSafeZone = false,
@@ -3545,7 +3590,8 @@ getgenv().config = {
     RageStatusMode = "static", -- static / crosshair
     RageStatusOffsetY = 48,
 
-    RageDesync = true,
+    RageDesync = true, -- siempre ON dentro del rage (no UI separada)
+    RageHideTP = true,
     RageLookSyncOnShoot = false,
     RageHideLocal = false,
     RagebotHeight = 2.2,
@@ -3565,11 +3611,13 @@ getgenv().config = {
     -- Rivals UseItem rage
     RageWeaponSlot = "Melee",
     RageFireRate = 0,
+    RageAttackSpeed = 10, -- UE-style: que tan rapido se tpea/ataca (1 lento - 20 insta)
     RageDesyncKnifeY = 6,
     RageDesyncNormalY = 1,
     RageDesyncNormalZ = 2,
     RageSkipDeflect = true,
-    RageUseItem = true,
+    RageUseItem = true, -- always on with ragebot
+
     RageShotsPerTick = 3,          -- balas por frame
     RageMultipoint = true,         -- head + upper torso
     RageSwitchDelay = 0.05,        -- al morir target, siguiente
@@ -3791,6 +3839,11 @@ getgenv().config = {
     RemoveAccessories = false,
 
     ESPEnabled = false,
+    ESPPerfMode = true, -- OPT: ESP ligero high FPS
+    ESPMaxPlayers = 16, -- mas jugadores
+    ESPUpdateInterval = 0.033, -- ~30 Hz fluido
+    ESPRadar = false,
+    ESPChams = false,
 
     -- LuaHook ESP
     ESP = false,
@@ -3811,14 +3864,16 @@ getgenv().config = {
     ESPDistance = true,
     ESPHealth = true,
     ESPHealthBar = true,
-    ESPSkeleton = true,
+    ESPSkeleton = false, -- OPT: skeleton mata FPS
+
     ESPTracers = false,
     ESPTeamCheck = false,
     ESPMaxDistance = 100000, -- 0 = infinite
     ESPDistanceScaling = true,
     ESPDistanceScalingRef = 50,
     ESPChams = false,
-    ESPFlags = true,
+    ESPFlags = false, -- OPT
+
 
     ESPMaxDist = 1e9, -- infinito
     ESPInfiniteRange = true,
@@ -3828,7 +3883,7 @@ getgenv().config = {
     ESPShowHP = true,
     ESPShowBox = true,
     ESPBoxStyle = "Corner", -- Corner / Full / Both
-    ESPSkeleton = true,
+    ESPSkeleton = false,
     ESPGlow = true,
     ESPSkeletonThickness = 1.5,
     ESPTracers = false,
@@ -3872,7 +3927,7 @@ getgenv().config = {
     CrosshairOutline = true,
     CrosshairSpin = true,
     CrosshairSpinSpeed = 120,
-    CrosshairText = "shako.win",
+    CrosshairText = "",
     CrosshairTextSize = 22,
     CrosshairRainbow = true,
     CrosshairOffsetX = 0,
@@ -4041,7 +4096,7 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(2.5)
+        task.wait(4) -- OPT
         if not config.RagebotEnabled or not modulesOK then continue end
         local lf = FighterController and FighterController.LocalFighter
         if lf then
@@ -4098,6 +4153,19 @@ end
 function isEnemyRageRivals(player)
     if not player or player == LocalPlayer then return false end
     if not player.Character then return false end
+    -- solo targets en pelea real (FighterController), no lobby/spectate
+    if FighterController and FighterController.Objects then
+        local foundAlive = false
+        for _, fo in pairs(FighterController.Objects) do
+            if fo and fo.Player == player then
+                if fo.Entity and fo.Entity:IsAlive() and not fo:Get("IsSpectating") then
+                    foundAlive = true
+                end
+                break
+            end
+        end
+        if not foundAlive then return false end
+    end
     -- Team check OFF o FFA forzado = atacar a todos
     if config.RagebotTeamCheck == false then return true end
     if config.RagebotForceFFA == true then return true end
@@ -4639,25 +4707,38 @@ end
 local _wallCache = _wallCache or {}
 local _mapColorCache = _mapColorCache or {}
 
+local function _mapRoots()
+    local roots = {}
+    for _, name in ipairs({"Map", "World", "Level", "Arena", "Stages", "Maps", "Geometry", "MapModel"}) do
+        local f = workspace:FindFirstChild(name)
+        if f then roots[#roots+1] = f end
+    end
+    if #roots == 0 then
+        for _, c in ipairs(workspace:GetChildren()) do
+            if (c:IsA("Model") or c:IsA("Folder")) and c.Name ~= "Players" then
+                roots[#roots+1] = c
+            end
+        end
+    end
+    return roots
+end
+
 local function applyWallXray(on)
     local trans = tonumber(config.WallTransparency) or 0.55
     if on then
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
-                -- evitar characters de players
-                local skip = false
-                for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr.Character and obj:IsDescendantOf(plr.Character) then skip = true break end
-                end
-                if skip then continue end
-                if obj.Transparency < 0.95 and obj.CanCollide then
+        local count = 0
+        for _, root in ipairs(_mapRoots()) do
+            for _, obj in ipairs(root:GetDescendants()) do
+                if count > 2500 then break end -- OPT hard cap
+                if obj:IsA("BasePart") and obj.CanCollide and obj.Transparency < 0.95 then
+                    if LocalPlayer.Character and obj:IsDescendantOf(LocalPlayer.Character) then continue end
                     if not _wallCache[obj] then
-                        _wallCache[obj] = { t = obj.Transparency, mat = obj.Material }
+                        _wallCache[obj] = { t = obj.Transparency }
                     end
-                    obj.LocalTransparencyModifier = math.clamp(trans, 0, 0.95)
-                    if not config.WallLocalOnly then
-                        obj.Transparency = math.max(obj.Transparency, trans)
-                    end
+                    pcall(function()
+                        obj.LocalTransparencyModifier = math.clamp(trans, 0, 0.95)
+                    end)
+                    count += 1
                 end
             end
         end
@@ -4687,26 +4768,29 @@ local function applyMapColor(on)
         tonumber(config.MapColorG) or 80,
         tonumber(config.MapColorB) or 100
     )
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            local skip = false
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr.Character and obj:IsDescendantOf(plr.Character) then skip = true break end
+    local count = 0
+    for _, root in ipairs(_mapRoots()) do
+        for _, obj in ipairs(root:GetDescendants()) do
+            if count > 2000 then break end
+            if obj:IsA("BasePart") then
+                if not _mapColorCache[obj] then _mapColorCache[obj] = obj.Color end
+                pcall(function() obj.Color = c end)
+                count += 1
             end
-            if skip then continue end
-            if not _mapColorCache[obj] then
-                _mapColorCache[obj] = obj.Color
-            end
-            pcall(function() obj.Color = c end)
         end
     end
 end
 
 local function applyRemoveTextures(on)
     if not on then return end
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Texture") or obj:IsA("Decal") then
-            pcall(function() obj.Transparency = 1 end)
+    local count = 0
+    for _, root in ipairs(_mapRoots()) do
+        for _, obj in ipairs(root:GetDescendants()) do
+            if count > 1500 then return end
+            if obj:IsA("Texture") or obj:IsA("Decal") then
+                pcall(function() obj.Transparency = 1 end)
+                count += 1
+            end
         end
     end
 end
@@ -5387,7 +5471,10 @@ function StartDefense()
     SafeDisconnect("Defense")
     local hum = getHum()
     if hum then lastHurtHP = hum.Health end
+    local defFrame = 0
     Connections.Defense = RunService.Heartbeat:Connect(function()
+        defFrame += 1
+        if defFrame % 2 ~= 0 then return end -- OPT
         if not CanDoDangerousMove() then return end
         if IsAntiUnnamedActive() or config.VoidSpamEnabled then return end
         local my = getHRP()
@@ -6163,12 +6250,15 @@ function HitFX.onHit(plr, dmg, wasKill, hitPos)
     end
 end
 
--- HP drop detector (reliable for Rivals client)
+-- HP drop detector (OPT: cada 0.1s, no cada frame)
 task.spawn(function()
     task.wait(1)
     local last = {}
-    RunService.Heartbeat:Connect(function()
-        if not (config.FXHitMarker or config.FXBeamTracer or config.FXDamageNumbers or config.FXKillBanner) then return end
+    while true do
+        task.wait(0.1)
+        if not (config.FXHitMarker or config.FXBeamTracer or config.FXDamageNumbers or config.FXKillBanner) then
+            continue
+        end
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr == LocalPlayer then continue end
             local char = plr.Character
@@ -6183,7 +6273,7 @@ task.spawn(function()
             end
             last[plr] = hp
         end
-    end)
+    end
 end)
 
 
@@ -6656,19 +6746,8 @@ function Spoof.patchMyProfileUI()
     end
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if pg then Spoof.patchGuiTree(pg, realName, realDisp, fakeDisp, fakeUser) end
-    pcall(function()
-        Spoof.patchGuiTree(game:GetService("CoreGui"), realName, realDisp, fakeDisp, fakeUser)
-    end)
-    -- billboards: solo Character local (no todo workspace)
-    pcall(function()
-        local ch = LocalPlayer.Character
-        if not ch then return end
-        for _, v in ipairs(ch:GetDescendants()) do
-            if v:IsA("BillboardGui") then
-                Spoof.patchGuiTree(v, realName, realDisp, fakeDisp, fakeUser)
-            end
-        end
-    end)
+    -- OPT: NO escanear CoreGui completo (lag fuerte)
+    -- billboards local desactivado (nametag propio = lag / doble nombre)
 end
 function Spoof.forceLocalDisplay()
     if not config.SpoofEnabled or not config.SpoofMyName then return end
@@ -6770,7 +6849,7 @@ task.spawn(function()
             end
         end)
         pcall(function()
-            if collectgarbage then collectgarbage("step", 200) end
+            -- OPT: GC manual causa stutter; no forzar cada ciclo
         end)
     end
 end)
@@ -7281,7 +7360,10 @@ end)
 
 function StartTriggerbot()
     SafeDisconnect("Triggerbot")
+    local tbFrame = 0
     Connections.Triggerbot = RunService.RenderStepped:Connect(function()
+        tbFrame += 1
+        if tbFrame % 2 ~= 0 then return end -- OPT
         if not config.TriggerbotEnabled or UserInputService:GetFocusedTextBox() then return end
         local partName = config.TriggerbotPart or "Head"
         local mousePos = UserInputService:GetMouseLocation()
@@ -8354,7 +8436,12 @@ StartAimbot = function()
     end
 
     -- Heartbeat + RenderStep (una vez cada uno)
-    Connections.Aimbot = RunService.RenderStepped:Connect(aimStep)
+    local aimFrame = 0
+    Connections.Aimbot = RunService.RenderStepped:Connect(function(...)
+        aimFrame += 1
+        if aimFrame % 2 ~= 0 then return end -- OPT ~30fps aim
+        return aimStep(...)
+    end)
     Notify("Aimbot", "ON · hold click derecho")
 end
 
@@ -8368,6 +8455,7 @@ StopAimbot = function()
 end
 
 StartRagebot = function()
+    config.RageUseItem = true -- force always with ragebot
     SafeDisconnect("Ragebot")
     RagebotTarget = nil
     voidRagePhase = 0
@@ -8424,7 +8512,7 @@ StartRagebot = function()
         local desyncCF = CFrame.lookAt(desyncPos, head.Position)
 
         -- DESYNC (como antes: server arriba del enemy, local quieto)
-        if config.RageDesync and config.RageUseItem ~= false then
+        if config.RageDesync then
             local myRoot = getHRP()
             if myRoot then
                 local oldCF = myRoot.CFrame
@@ -8463,12 +8551,21 @@ StartRagebot = function()
         end
 
         -- UseItem fire avanzado (multi-shot + multipoint)
-        if config.RageUseItem ~= false then
+        if true then -- RageUseItem always
             local lf = FighterController and FighterController.LocalFighter
             local item = lf and lf.EquippedItem
             if not item then return end
+            -- Attack speed estilo UE: 1 = lento, 20 = casi insta
+            local atk = tonumber(config.RageAttackSpeed) or 10
+            atk = math.clamp(atk, 1, 20)
             local rate = tonumber(config.RageFireRate) or 0
-            if rate > 0 and (tick() - rageLastFire) < rate then return end
+            if rate <= 0 then
+                -- interval minimo entre tps/shots segun attack
+                rate = 0.08 / atk  -- 20 → 0.004s, 10 → 0.008s, 1 → 0.08s
+            else
+                rate = rate / atk
+            end
+            if (tick() - rageLastFire) < rate then return end
             rageLastFire = tick()
 
             local hitPart = head
@@ -9088,7 +9185,10 @@ end
 
 StartStickRender = function()
     SafeDisconnect("StickRender")
+    local stickFrame = 0
     Connections.StickRender = RunService.RenderStepped:Connect(function()
+        stickFrame += 1
+        if stickFrame % 2 ~= 0 then return end -- OPT
         if IsAntiUnnamedActive() or config.VoidSpamEnabled or config.RagebotEnabled then return end
         if not CanDoDangerousMove() or not config.StickOnRender then return end
         -- prioridad estricta: solo una a la vez, y solo si está activada
@@ -9121,17 +9221,17 @@ StartMainLoop = function()
     local mainFrame = 0
     Connections.Main = RunService.Heartbeat:Connect(function()
         mainFrame += 1
-        -- movement solo cada 2 frames si no hay stick activo
+        -- OPT: movement menos frecuente
         local needMove = config.SpeedEnabled or config.JumpPowerEnabled or config.SlideBoostEnabled
             or config.AntiFling or config.DesyncJitter
         if needMove then
-            if mainFrame % 2 == 0 then UpdateMovement() end
-        elseif mainFrame % 4 == 0 then
+            if mainFrame % 3 == 0 then UpdateMovement() end
+        elseif mainFrame % 6 == 0 then
             UpdateMovement()
         end
         if not CanDoDangerousMove() then return end
         if IsAntiUnnamedActive() or config.VoidSpamEnabled then return end
-        if mainFrame % 3 == 0 then ExpandHitboxes() end
+        if mainFrame % 5 == 0 then ExpandHitboxes() end
         if config.StickOnRender and (config.Enabled or config.StrafeEnabled or config.OrbitEnabled) then
             ApplyFakePosition()
             return
@@ -9697,7 +9797,7 @@ local ESP = {}
         o.ui = nil
     end
     local _createBudget = 0
-    local CREATE_BUDGET_PER_FRAME = 32
+    local CREATE_BUDGET_PER_FRAME = 6 -- OPT lag
     local function newDraw(t)
         if not hasDrawing then return nil end
         local ok, d = pcall(screenDraw, t)
@@ -10087,7 +10187,7 @@ local ESP = {}
             f.Visible = false
             u.skel[i] = f
         end
-        if (not o._skelPts) or (_espFrame - (o._skelFrame or -9)) >= 2 then
+        if (not o._skelPts) or (_espFrame - (o._skelFrame or -9)) >= 4 then
             o._skelFrame = _espFrame
             local pts = o._skelPts; if not pts then pts = {}; o._skelPts = pts end
             for i, pair in ipairs(o.bones) do
@@ -10589,7 +10689,12 @@ local ESP = {}
     local function render()
         local _now = tick()
         local _dt  = _now - _lastRenderT
-        if _now - _lastRenderT < 0.0083 then return end
+        -- OPT FPS: perf ~10 Hz ESP, normal ~30 Hz (menos carga en RenderStepped)
+        local espHz = 0.033
+        if config and config.ESPPerfMode ~= false then
+            espHz = tonumber(config.ESPUpdateInterval) or 0.1 -- ~10 fps ESP
+        end
+        if _now - _lastRenderT < espHz then return end
         _lastRenderT = _now
         _espFrame = _espFrame + 1
         _createBudget = CREATE_BUDGET_PER_FRAME
@@ -10613,10 +10718,14 @@ local ESP = {}
         ctx.tsHp   = typePx(Config.ESPHealthTextSize or 11, ts)
         ctx.tsChip = typePx(10, ts)
         ctx.casing = math.floor(math.clamp(Config.ESPTextCasing or 1, 0, 4))
-        if Config.ESPDeclutter and (ctx.now - _dcLastT) >= 0.05 then
+        -- declutter solo fuera de perf (caro)
+        if config and config.ESPPerfMode == false and Config.ESPDeclutter and (ctx.now - _dcLastT) >= 0.2 then
             _dcLastT = ctx.now; pcall(doDeclutter, ctx)
         end
         local cap = Config.ESPMaxPlayers or 0
+        if config and config.ESPPerfMode ~= false then
+            cap = math.min(cap > 0 and cap or 8, 8)
+        end
         if cap and cap > 0 then
             local arr = _renderArr
             local n = 0
@@ -10677,12 +10786,20 @@ local ESP = {}
             else
                 State.PrimaryTarget = nil
             end
+            local perf = config and config.ESPPerfMode ~= false
+            local idx = 0
             for player, o in pairs(State.ESPObjects) do
                 o._dist = nil
-                pcall(renderPlayer, player, o)
+                idx = idx + 1
+                -- en perf: half players each frame
+                if not (perf and ((idx + _espFrame) % 2 == 1)) then
+                    pcall(renderPlayer, player, o)
+                end
             end
         end
-        pcall(renderRadar, ctx)
+        if not (config and config.ESPPerfMode ~= false) then
+            pcall(renderRadar, ctx)
+        end
         if Config.ESPThreatCount then
             pcall(function()
                 local t = nd(_module, "threat", "Text")
@@ -10714,7 +10831,7 @@ local ESP = {}
         end)
         Players.PlayerRemoving:Connect(function(p) cleanESP(p) end)
         if Config.ESP and not _renderConn then
-            _renderConn = RunService.RenderStepped:Connect(render)
+            _renderConn = RunService.Heartbeat:Connect(render)
             ESP.rebuildAll()
         end
     end
@@ -10754,7 +10871,7 @@ local ESP = {}
             end)
         end
         ESP.rebuildAll()
-        if not _renderConn then _renderConn = RunService.RenderStepped:Connect(render) end
+        if not _renderConn then _renderConn = RunService.Heartbeat:Connect(render) end
         -- forzar rebuild periódico por si se pierde un respawn
         if not ESP._refreshConn then
             ESP._refreshConn = true
@@ -10801,6 +10918,29 @@ end)()
 StartESP = function()
     config.ESPEnabled = true
     config.ESP = true
+    -- OPT: modo rendimiento fuerza opciones ligeras
+    if config.ESPPerfMode ~= false then
+        config.ESPSkeleton = false
+        config.ESPFlags = false
+        config.ESPRadar = false
+        config.ESPChams = false
+        config.ESPTracers = false
+        config.ESPGlow = false
+        config.ESPDeclutter = false
+        config.ESPFadeIn = false
+        config.ESPMaxPlayers = math.min(tonumber(config.ESPMaxPlayers) or 8, 8)
+        config.ESPUpdateInterval = tonumber(config.ESPUpdateInterval) or 0.1
+        pcall(function()
+            Config.ESPSkeleton = false
+            Config.ESPFlags = false
+            Config.ESPRadar = false
+            Config.ESPChams = false
+            Config.ESPTracers = false
+            Config.ESPDeclutter = false
+            Config.ESPFadeIn = false
+            Config.ESPMaxPlayers = 8
+        end)
+    end
     -- sync flags UI → Config/LuaHook
     config.ESPBox = config.ESPShowBox ~= false
     config.ESPName = config.ESPShowName ~= false
@@ -15169,7 +15309,7 @@ function ShakoCross.build()
     hollow.Position = UDim2.new(0.5, ox, 0.5, oy + textOff)
     hollow.AnchorPoint = Vector2.new(0.5, 0)
     hollow.BackgroundTransparency = 1
-    hollow.Text = tostring(config.CrosshairText or "shako.win")
+    hollow.Text = tostring(config.CrosshairText or "")
     hollow.TextColor3 = Color3.fromRGB(255, 255, 255)
     hollow.TextSize = tonumber(config.CrosshairTextSize) or 22
     hollow.Font = Enum.Font.GothamBold
@@ -15213,7 +15353,7 @@ function ShakoCross.build()
         end
         if ShakoCross.text then
             ShakoCross.text.TextColor3 = col
-            ShakoCross.text.Text = tostring(config.CrosshairText or "shako.win")
+            ShakoCross.text.Text = tostring(config.CrosshairText or "")
             ShakoCross.text.TextSize = tonumber(config.CrosshairTextSize) or 22
         end
     end)
@@ -15229,14 +15369,12 @@ function StopCrosshair()
 end
 
 
-Connections.VisualLoop = RunService.RenderStepped:Connect(function(dt)
-    _visAcc += dt or 0.016
-    if _visAcc >= 0.2 then
-        _visAcc = 0
+-- OPT: EnsureCameraFree cada 0.5s (no RenderStepped)
+task.spawn(function()
+    while true do
+        task.wait(0.5)
         pcall(EnsureCameraFree)
     end
-    -- old Drawing crosshair removed (ShakoSpinningCrosshair)
-
 end)
 
 function HookCharacter(char)
@@ -15799,7 +15937,7 @@ function Cfg.ApplyLoadedState()
             end
         end)
         safe(function()
-            if config.StretchedRes then ApplyStretchedRes() end
+            config.StretchedRes = false -- removed
         end)
         -- ===== VISUALES (weather / sky / fullbright / FF) =====
         safe(function()
@@ -16048,7 +16186,7 @@ function Cfg.Load(name)
         Notify("Unlock", "Skins restauradas en config")
     end)
 
-    getgenv()._ShakoUISyncing = true
+    getgenv()._ObsidianSyncing = true
     -- UI primero (sin callbacks) + reintentos
     Cfg.SyncUIFromConfig(data)
     task.defer(function()
@@ -16056,7 +16194,7 @@ function Cfg.Load(name)
         Cfg.SyncUIFromConfig(data)
         task.wait(0.5)
         Cfg.SyncUIFromConfig(data)
-        getgenv()._ShakoUISyncing = false
+        getgenv()._ObsidianSyncing = false
         -- avatar id explícito otra vez
         pcall(function()
             local aid = tonumber(config.SkinTargetUserId)
@@ -16214,13 +16352,13 @@ function Cfg.TryAutoLoad()
         local name = Cfg.GetAutoLoad()
         if not name then return end
         Notify("Config", "Auto Load: " .. name)
-        getgenv()._ShakoUISyncing = true
+        getgenv()._ObsidianSyncing = true
         local ok = false
         for try = 1, 5 do
             if Cfg.Load(name) then ok = true break end
             task.wait(0.6)
         end
-        getgenv()._ShakoUISyncing = false
+        getgenv()._ObsidianSyncing = false
         Notify("Config", ok and ("Auto Load OK: " .. name) or ("Auto Load FAIL: " .. name))
     end)
 end
@@ -16230,6 +16368,53 @@ end
 
 function BuildUI()
 local Tabs = {}
+
+local function bindKey(tog, id, defaultKey)
+    pcall(function()
+        if not tog or type(tog.AddKeyPicker) ~= "function" then return end
+        tog:AddKeyPicker(id, {
+            Default = (defaultKey and defaultKey ~= "" and defaultKey) or "...",
+            Text = "Keybind",
+            Mode = "Toggle",
+            Modes = {"Toggle", "Hold", "Always"},
+            SyncToggleState = true,
+        })
+    end)
+end
+
+local function addColor(group, id, title, getRGB, setRGB, onChange)
+    pcall(function()
+        if not group or not group.AddLabel then return end
+        local lbl = group:AddLabel(title or id)
+        if not lbl or not lbl.AddColorPicker then return end
+        local r,g,b = getRGB()
+        lbl:AddColorPicker(id, {
+            Default = Color3.fromRGB(tonumber(r) or 255, tonumber(g) or 255, tonumber(b) or 255),
+            Title = title or id,
+            Callback = function(c)
+                setRGB(math.floor(c.R*255+0.5), math.floor(c.G*255+0.5), math.floor(c.B*255+0.5))
+                if onChange then pcall(onChange, c) end
+            end
+        })
+    end)
+end
+local function addColor3(group, id, title, getC3, setC3, onChange)
+    pcall(function()
+        if not group or not group.AddLabel then return end
+        local lbl = group:AddLabel(title or id)
+        if not lbl or not lbl.AddColorPicker then return end
+        lbl:AddColorPicker(id, {
+            Default = getC3() or Color3.fromRGB(255,255,255),
+            Title = title or id,
+            Callback = function(c)
+                setC3(c)
+                if onChange then pcall(onChange, c) end
+            end
+        })
+    end)
+end
+
+
 local function addTab(key, name, icon)
     local ok, tab = pcall(function() return Window:AddTab(name, icon) end)
     if not ok or not tab then
@@ -16237,21 +16422,28 @@ local function addTab(key, name, icon)
     end
     if ok and tab then Tabs[key] = tab else warn("[shako] tab fail", name, tab) end
 end
-addTab("Main", "Main", "sword")
-addTab("Movement", "Movement", "move")
-addTab("Rage", "Rage", "skull")
-addTab("Void", "Void", "zap")
-addTab("Visual", "Visual", "eye")
-addTab("World", "World", "globe")
-addTab("Obsidian", "Obsidian", "shield")
-addTab("Spoofer", "Spoofer", "user")
-addTab("Unlock", "Unlock", "unlock")
-addTab("Configs", "Configs", "file")
-addTab("Misc", "Misc", "settings")
+-- Tabs compactos (sin HVH aparte — UE/Defense van en Counters)
+addTab("Main", "main", "sword")
+addTab("World", "world", "globe")
+addTab("ESP", "esp", "eye")
+addTab("Visual", "visuals", "sparkles")
+addTab("Character", "character", "user")
+addTab("Spoofer", "spoofers", "user")
+addTab("Misc", "misc", "box")
+addTab("Settings", "settings", "settings")
 if not Tabs.Main then warn("[shako] BuildUI abort: no Main tab") return end
+Tabs.Rage = Tabs.Main
+Tabs.Void = Tabs.Misc
+Tabs.Movement = Tabs.Character
+Tabs.Obsidian = Tabs.Misc
+Tabs.Configs = Tabs.Settings
+if not Tabs.ESP then Tabs.ESP = Tabs.Visual end
+if not Tabs.Spoofer then Tabs.Spoofer = Tabs.Misc end
+Tabs.Unlock = Tabs.Spoofer
 
-local CombatBox = Tabs.Main:AddLeftGroupbox("shako.win")
-CombatBox:AddToggle("EnableHVH", {
+
+local CombatBox = Tabs.Main:AddLeftGroupbox("Stick / Anti-Sleepy")
+local togStick = CombatBox:AddToggle("EnableHVH", {
     Text = "Activar shako", Default = false,
     Callback = function(v)
         if IsAntiUnnamedActive() or config.VoidSpamEnabled then Notify("Warn", "Apaga AU/Void") return end
@@ -16259,6 +16451,7 @@ CombatBox:AddToggle("EnableHVH", {
         if v then StartMainLoop() else SafeDisconnect("Main") SafeDisconnect("StickRender") CurrentTarget = nil end
     end
 })
+bindKey(togStick, "StickKey", "...")
 CombatBox:AddToggle("TargetLock", {
     Text = "Lock Target", Default = false,
     Callback = function(v) config.TargetLock = v if not v then LockedTarget = nil end end
@@ -16271,10 +16464,8 @@ CombatBox:AddToggle("StickMultiPos", {
     Text = "Multi Pos (cambia direccion)", Default = true,
     Callback = function(v) config.StickMultiPos = v end
 })
-CombatBox:AddToggle("StickDesync", {
-    Text = "Desync (no ves el TP)", Default = true,
-    Callback = function(v) config.StickDesync = v end
-})
+-- StickDesync siempre ON (dentro del stick, sin opcion separada)
+config.StickDesync = true
 CombatBox:AddSlider("StickPosInterval", {
     Text = "Cambio pos (s)", Default = 0.18, Min = 0.05, Max = 0.8, Rounding = 2,
     Callback = function(v) config.StickPosInterval = v end
@@ -16330,7 +16521,7 @@ CombatBox:AddInput("TargetNameInput", {
     Text = "Nombre target", Default = "", Callback = function(v) config.TargetName = v end
 })
 
-local SoftBox = Tabs.Main:AddRightGroupbox("Soft TP / Extras")
+local SoftBox = Tabs.Main:AddRightGroupbox("Soft TP / Stick extras")
 SoftBox:AddToggle("SoftStick", {
     Text = "Soft Stick", Default = true,
     Callback = function(v) config.SoftStick = v end
@@ -16376,10 +16567,6 @@ SoftBox:AddSlider("OrbitSpeed", {
     Text = "Orbit Speed", Default = 16, Min = 1, Max = 40, Rounding = 0,
     Callback = function(v) config.OrbitSpeed = v end
 })
-SoftBox:AddToggle("Hitbox", {
-    Text = "Hitbox Expand", Default = true,
-    Callback = function(v) config.HitboxExpand = v end
-})
 SoftBox:AddSlider("HitboxSize", {
     Text = "Hitbox Size", Default = 11, Min = 3, Max = 20, Rounding = 0,
     Callback = function(v) config.HitboxSize = v end
@@ -16398,7 +16585,7 @@ SoftBox:AddToggle("FakePosition", {
 })
 
 -- RAGE FULL
-local CounterBox = Tabs.Rage:AddLeftGroupbox("Sleepy / Kicia Counter")
+local CounterBox = Tabs.Misc:AddLeftGroupbox("counters")
 CounterBox:AddToggle("SleepyCounterEnabled", {
     Text = "Sleepy Counter", Default = false,
     Callback = function(v)
@@ -16456,15 +16643,18 @@ CounterBox:AddLabel("Kicia = TP cielo + linea lateral")
 CounterBox:AddLabel("Al OFF vuelve a tu posicion")
 CounterBox:AddLabel("Sleepy = lado mano lejitos + head")
 
-local RageBox = Tabs.Rage:AddLeftGroupbox("Rage UseItem Desync")
-RageBox:AddToggle("RagebotToggle", {
-    Text = "Ragebot (UseItem)", Default = false,
+local RageBox = Tabs.Main:AddLeftGroupbox("ragebot")
+local togRage = RageBox:AddToggle("RagebotToggle", {
+    Text = "Ragebot", Default = false,
     Callback = function(v)
         if v and IsAntiUnnamedActive() then Notify("Warn", "Apaga AU") return end
         config.RagebotEnabled = v
-        if v then StartRagebot() Notify("Rage", "UseItem Desync ON") else StopRagebot() end
+        if v then config.RageDesync = true end
+        config.RageUseItem = true -- siempre con rage
+        if v then StartRagebot() else StopRagebot() end
     end
 })
+bindKey(togRage, "RagebotKey", "...")
 RageBox:AddToggle("RagebotForceFFA", {
     Text = "Force FFA (ignora team)", Default = false,
     Callback = function(v)
@@ -16501,10 +16691,6 @@ RageBox:AddSlider("RageStatusOffsetY", {
     Text = "Status Offset Y", Default = 48, Min = 0, Max = 200, Rounding = 0,
     Callback = function(v) config.RageStatusOffsetY = v end
 })
-RageBox:AddToggle("RageUseItem", {
-    Text = "Fire UseItem remote", Default = true,
-    Callback = function(v) config.RageUseItem = v end
-})
 RageBox:AddDropdown("RageWeaponSlot", {
     Text = "Weapon Slot",
     Values = {"Melee", "Primary", "Secondary"},
@@ -16515,10 +16701,8 @@ RageBox:AddSlider("RageFireRate", {
     Text = "Fire Rate (0 = max)", Default = 0, Min = 0, Max = 0.05, Rounding = 4,
     Callback = function(v) config.RageFireRate = v end
 })
-RageBox:AddToggle("RageDesync", {
-    Text = "Desync (no ves el TP)", Default = true,
-    Callback = function(v) config.RageDesync = v end
-})
+-- Desync integrado en ragebot (siempre ON)
+config.RageDesync = true
 RageBox:AddToggle("RageSkipDeflect", {
     Text = "Skip Katana Deflect", Default = true,
     Callback = function(v) config.RageSkipDeflect = v end
@@ -16556,7 +16740,7 @@ RageBox:AddDropdown("VoidRageMethods", {
     Callback = function(v) config.VoidRageMethods = v end
 })
 RageBox:AddSlider("VoidRageAwayDist", {
-    Text = "Away dist", Default = 80, Min = 10, Max = 250, Rounding = 0,
+    Text = "Away dist (hide)", Default = 80, Min = 10, Max = 999999999, Rounding = 0,
     Callback = function(v) config.VoidRageAwayDist = v end
 })
 RageBox:AddSlider("VoidRageInterval", {
@@ -16567,6 +16751,11 @@ RageBox:AddSlider("RagebotHeight", {
     Text = "Altura (arriba head)", Default = 2.2, Min = -4, Max = 8, Rounding = 1,
     Callback = function(v) config.RagebotHeight = v end
 })
+RageBox:AddSlider("RageAttackSpeed", {
+    Text = "Attack (vel TP/fire)", Default = 10, Min = 1, Max = 20, Rounding = 1,
+    Callback = function(v) config.RageAttackSpeed = v end
+})
+RageBox:AddLabel("Attack alto = se tpea/pega mas rapido (estilo UE)")
 RageBox:AddToggle("RagebotInfiniteRange", {
     Text = "Rango Infinito", Default = true,
     Callback = function(v) config.RagebotInfiniteRange = v end
@@ -16682,14 +16871,16 @@ RageBox:AddButton({
 
 
 -- SILENT AIM UI
-local SilentBox = Tabs.Rage:AddRightGroupbox("Silent Aim")
-SilentBox:AddToggle("SilentAimToggle", {
+local SilentBox = Tabs.Main:AddRightGroupbox("silent aim")
+local togSilent = SilentBox:AddToggle("SilentAimToggle", {
     Text = "Silent Aim", Default = false,
     Callback = function(v)
         config.SilentAimEnabled = v
         if v then StartSilentAim() else StopSilentAim() end
     end
 })
+bindKey(togSilent, "SilentAimKey", "...")
+
 SilentBox:AddDropdown("SilentHitPart", {
     Text = "Hit Part",
     Values = {"Head", "HumanoidRootPart", "UpperTorso", "Torso"},
@@ -16743,11 +16934,13 @@ SilentBox:AddToggle("SilentForceAiming", {
     Callback = function(v) config.SilentForceAiming = v end
 })
 
-local AimBox = Tabs.Rage:AddRightGroupbox("Aim / Click / Recoil / Rapid")
-AimBox:AddToggle("AimbotToggle", {
+local AimBox = Tabs.Main:AddRightGroupbox("aimbot")
+local togAim = AimBox:AddToggle("AimbotToggle", {
     Text = "Aimbot (Rivals)", Default = false,
     Callback = function(v) config.AimbotEnabled = v if v then StartAimbot() else StopAimbot() end end
 })
+bindKey(togAim, "AimbotKey", "...")
+
 AimBox:AddToggle("AimbotKeyHold", {
     Text = "Solo con click derecho (RMB)", Default = true,
     Callback = function(v) config.AimbotKeyHold = v end
@@ -16852,8 +17045,8 @@ AimBox:AddButton({
 AimBox:AddLabel("No Recoil = ItemLibrary ShootRecoil=0")
 
 -- VOID
-local VoidBox = Tabs.Void:AddLeftGroupbox("Void Spam")
-VoidBox:AddToggle("VoidSpam", {
+local VoidBox = Tabs.Misc:AddLeftGroupbox("void")
+local togVoid = VoidBox:AddToggle("VoidSpam", {
     Text = "Enable Void Spam", Default = false,
     Callback = function(v)
         if v and IsAntiUnnamedActive() then Notify("AU", "Apaga AU") return end
@@ -16870,6 +17063,8 @@ VoidBox:AddToggle("VoidSpam", {
         end
     end
 })
+bindKey(togVoid, "VoidSpamKey", "...")
+
 VoidBox:AddDropdown("VoidMethod", {
     Text = "Metodo",
     Values = {"Quantum", "Drift", "Chaos", "Loop", "Spiral"},
@@ -16905,7 +17100,7 @@ VoidBox:AddSlider("VoidRadiusUI", {
     Callback = function(v) config.VoidRadius = v * 1e12 end
 })
 
-local DodgeBox = Tabs.Void:AddRightGroupbox("Dodge / Trigger")
+local DodgeBox = Tabs.Misc:AddRightGroupbox("dodge")
 DodgeBox:AddToggle("PredDodge", {
     Text = "Prediction Dodge", Default = false,
     Callback = function(v) config.PredDodgeEnabled = v if v then StartPredDodge() else StopPredDodge() end end
@@ -16932,7 +17127,7 @@ DodgeBox:AddSlider("TriggerbotCPS", {
 })
 
 -- VISUAL FULL
-local VisBox = Tabs.Visual:AddLeftGroupbox("Brillo / FX")
+local VisBox = Tabs.World:AddLeftGroupbox("lighting")
 VisBox:AddToggle("ForceFieldVisual", {
     Text = "ForceField visual", Default = false,
     Callback = function(v)
@@ -16964,6 +17159,10 @@ VisBox:AddToggle("ForceFieldPulse", {
         if config.ForceFieldVisual then StartForceField() end
     end
 })
+addColor3(VisBox, "ForceFieldColorPick", "ForceField Color",
+    function() return config.ForceFieldColor or Color3.fromRGB(180,0,255) end,
+    function(c) config.ForceFieldColor = c end,
+    function() if config.ForceFieldVisual then ApplyForceField() end end)
 VisBox:AddDropdown("ForceFieldColorPreset", {
     Text = "FF Color preset",
     Values = {"Morado", "Cyan", "Rojo", "Verde", "Blanco", "Rosa"},
@@ -17032,62 +17231,30 @@ VisBox:AddToggle("AmbientColor", {
     Text = "Ambient Colors", Default = false,
     Callback = function(v) config.AmbientColor = v ApplyVisuals() end
 })
-VisBox:AddSlider("AmbientR", {
-    Text = "Ambient R", Default = 120, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.AmbientR = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
-})
-VisBox:AddSlider("AmbientG", {
-    Text = "Ambient G", Default = 120, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.AmbientG = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
-})
-VisBox:AddSlider("AmbientB", {
-    Text = "Ambient B", Default = 140, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.AmbientB = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
-})
-VisBox:AddSlider("OutdoorR", {
-    Text = "Outdoor R", Default = 140, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.OutdoorR = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
-})
-VisBox:AddSlider("OutdoorG", {
-    Text = "Outdoor G", Default = 140, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.OutdoorG = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
-})
-VisBox:AddSlider("OutdoorB", {
-    Text = "Outdoor B", Default = 160, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.OutdoorB = v if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end
-})
+addColor(VisBox, "AmbientColorPick", "Ambient",
+    function() return config.AmbientR or 120, config.AmbientG or 120, config.AmbientB or 140 end,
+    function(r,g,b) config.AmbientR, config.AmbientG, config.AmbientB = r,g,b end,
+    function() if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end)
+addColor(VisBox, "OutdoorColorPick", "Outdoor Ambient",
+    function() return config.OutdoorR or 140, config.OutdoorG or 140, config.OutdoorB or 160 end,
+    function(r,g,b) config.OutdoorR, config.OutdoorG, config.OutdoorB = r,g,b end,
+    function() if config.AmbientColor or config.LightingOverride then ApplyVisuals() end end)
 VisBox:AddToggle("ColorShiftEnabled", {
     Text = "Color Shift", Default = false,
     Callback = function(v) config.ColorShiftEnabled = v ApplyVisuals() end
 })
-VisBox:AddSlider("ColorShiftR", {
-    Text = "Shift R", Default = 0, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.ColorShiftR = v if config.ColorShiftEnabled then ApplyVisuals() end end
-})
-VisBox:AddSlider("ColorShiftG", {
-    Text = "Shift G", Default = 0, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.ColorShiftG = v if config.ColorShiftEnabled then ApplyVisuals() end end
-})
-VisBox:AddSlider("ColorShiftB", {
-    Text = "Shift B", Default = 0, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.ColorShiftB = v if config.ColorShiftEnabled then ApplyVisuals() end end
-})
+addColor(VisBox, "ColorShiftPick", "Color Shift",
+    function() return config.ColorShiftR or 0, config.ColorShiftG or 0, config.ColorShiftB or 0 end,
+    function(r,g,b) config.ColorShiftR, config.ColorShiftG, config.ColorShiftB = r,g,b end,
+    function() if config.ColorShiftEnabled then ApplyVisuals() end end)
 VisBox:AddToggle("TintEnabled", {
     Text = "Tint Color", Default = false,
     Callback = function(v) config.TintEnabled = v ApplyVisuals() end
 })
-VisBox:AddSlider("TintR", {
-    Text = "Tint R", Default = 255, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.TintR = v if config.TintEnabled then ApplyVisuals() end end
-})
-VisBox:AddSlider("TintG", {
-    Text = "Tint G", Default = 255, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.TintG = v if config.TintEnabled then ApplyVisuals() end end
-})
-VisBox:AddSlider("TintB", {
-    Text = "Tint B", Default = 255, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.TintB = v if config.TintEnabled then ApplyVisuals() end end
-})
+addColor(VisBox, "TintColorPick", "Tint Color",
+    function() return config.TintR or 255, config.TintG or 255, config.TintB or 255 end,
+    function(r,g,b) config.TintR, config.TintG, config.TintB = r,g,b end,
+    function() if config.TintEnabled then ApplyVisuals() end end)
 VisBox:AddSlider("Saturation", {
     Text = "Saturation", Default = 0, Min = -1, Max = 1, Rounding = 2,
     Callback = function(v) config.Saturation = v ApplyVisuals() end
@@ -17140,18 +17307,10 @@ VisBox:AddToggle("MapColorEnabled", {
         if v then ApplyVisuals() else pcall(function() applyMapColor(false) end) end
     end
 })
-VisBox:AddSlider("MapColorR", {
-    Text = "Map R", Default = 80, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.MapColorR = v if config.MapColorEnabled then pcall(function() applyMapColor(true) end) end end
-})
-VisBox:AddSlider("MapColorG", {
-    Text = "Map G", Default = 80, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.MapColorG = v if config.MapColorEnabled then pcall(function() applyMapColor(true) end) end end
-})
-VisBox:AddSlider("MapColorB", {
-    Text = "Map B", Default = 100, Min = 0, Max = 255, Rounding = 0,
-    Callback = function(v) config.MapColorB = v if config.MapColorEnabled then pcall(function() applyMapColor(true) end) end end
-})
+addColor(VisBox, "MapColorPick", "Map Tint",
+    function() return config.MapColorR or 80, config.MapColorG or 80, config.MapColorB or 100 end,
+    function(r,g,b) config.MapColorR, config.MapColorG, config.MapColorB = r,g,b end,
+    function() if config.MapColorEnabled then pcall(function() applyMapColor(true) end) end end)
 VisBox:AddToggle("RemoveTextures", {
     Text = "Remove Textures", Default = false,
     Callback = function(v)
@@ -17197,8 +17356,8 @@ VisBox:AddButton({
 })
 VisBox:AddButton({ Text = "Reset Visual", Func = ResetVisuals })
 
-local ESPBox = Tabs.Visual:AddRightGroupbox("ESP / Tracers / HUD")
-ESPBox:AddToggle("ESPEnabled", {
+local ESPBox = Tabs.ESP:AddLeftGroupbox("ESP")
+local togESP = ESPBox:AddToggle("ESPEnabled", {
     Text = "ESP (LuaHook)", Default = false,
     Callback = function(v)
         config.ESPEnabled = v
@@ -17206,10 +17365,39 @@ ESPBox:AddToggle("ESPEnabled", {
         if v then StartESP() else StopESP() end
     end
 })
+bindKey(togESP, "ESPKey", "...")
+
+ESPBox:AddToggle("ESPPerfMode", {
+    Text = "ESP High FPS (recomendado)", Default = true,
+    Callback = function(v)
+        config.ESPPerfMode = v
+        if v then
+            config.ESPSkeleton = false
+            config.ESPRadar = false
+            config.ESPChams = false
+            config.ESPTracers = false
+            config.ESPMaxPlayers = math.min(tonumber(config.ESPMaxPlayers) or 8, 8)
+        end
+    end
+})
+ESPBox:AddSlider("ESPUpdateInterval", {
+    Text = "ESP refresh (s) · mas = mas FPS", Default = 0.1, Min = 0.05, Max = 0.25, Rounding = 2,
+    Callback = function(v) config.ESPUpdateInterval = v end
+})
+ESPBox:AddSlider("ESPMaxPlayers", {
+    Text = "Max jugadores ESP", Default = 8, Min = 4, Max = 20, Rounding = 0,
+    Callback = function(v) config.ESPMaxPlayers = v end
+})
 ESPBox:AddToggle("ESPTeamCheck", {
     Text = "Team Check (solo enemigos)", Default = true,
     Callback = function(v) config.ESPTeamCheck = v end
 })
+addColor3(ESPBox, "ESPBoxColorPick", "ESP Box Color",
+    function() return config.ESPBoxColor or Color3.fromRGB(255,255,255) end,
+    function(c) config.ESPBoxColor = c end, function() end)
+addColor3(ESPBox, "ESPFillColorPick", "ESP Fill Color",
+    function() return config.ESPBoxFillColor or Color3.fromRGB(255,59,78) end,
+    function(c) config.ESPBoxFillColor = c end, function() end)
 ESPBox:AddDropdown("ESPColor", {
     Text = "Color ESP",
     Values = {"White", "Red", "Green", "Blue", "Cyan", "Yellow", "Magenta", "Orange"},
@@ -17364,6 +17552,9 @@ ESPBox:AddToggle("BulletTracerEnabled", {
     Text = "Bullet Tracers", Default = true,
     Callback = function(v) config.BulletTracerEnabled = v end
 })
+addColor3(ESPBox, "BulletTracerColorPick", "Bullet Tracer Color",
+    function() return config.BulletTracerColorCustom or Color3.fromRGB(0,220,255) end,
+    function(c) config.BulletTracerColorCustom = c; config.BulletTracerColor = "Custom" end, function() end)
 ESPBox:AddDropdown("BulletTracerColor", {
     Text = "Bullet Tracer Color",
     Values = {"Cyan", "White", "Red", "Green", "Yellow", "Magenta", "Orange", "Blue"},
@@ -17385,113 +17576,11 @@ ESPBox:AddSlider("BulletTracerGlow", {
     Callback = function(v) config.BulletTracerGlow = v end
 })
 
-ESPBox:AddToggle("StretchedRes", {
-    Text = "Stretched Resolution", Default = false,
-    Callback = function(v)
-        config.StretchedRes = v
-        ApplyStretchedRes()
-        Notify("Stretch", v and "ON (CFrame 0.67)" or "OFF")
-    end
-})
-ESPBox:AddToggle("StretchedUseMatrix", {
-    Text = "Stretch Aspect Matrix (pesado)", Default = false,
-    Callback = function(v)
-        config.StretchedUseMatrix = v
-        if config.StretchedRes then ApplyStretchedRes() end
-    end
-})
-ESPBox:AddSlider("StretchedFOV", {
-    Text = "Stretched FOV", Default = 90, Min = 60, Max = 120, Rounding = 0,
-    Callback = function(v)
-        config.StretchedFOV = v
-        if config.StretchedRes then ApplyStretchedRes() end
-    end
-})
-ESPBox:AddSlider("StretchedWidth", {
-    Text = "Stretch Width %", Default = 100, Min = 50, Max = 150, Rounding = 0,
-    Callback = function(v)
-        config.StretchedWidth = v
-        if config.StretchedRes then ApplyStretchedRes() end
-    end
-})
-ESPBox:AddSlider("StretchedHeight", {
-    Text = "Stretch Height %", Default = 100, Min = 50, Max = 150, Rounding = 0,
-    Callback = function(v)
-        config.StretchedHeight = v
-        if config.StretchedRes then ApplyStretchedRes() end
-    end
-})
-ESPBox:AddSlider("StretchedAspect", {
-    Text = "Stretch Aspect (extra)", Default = 1.33, Min = 1, Max = 2, Rounding = 2,
-    Callback = function(v)
-        config.StretchedAspect = v
-        if config.StretchedRes then ApplyStretchedRes() end
-    end
-})
-ESPBox:AddLabel("Width>100 o Aspect>1 = mas estirado")
-ESPBox:AddLabel("Preset 4:3: Width 100 Aspect 1.33 FOV 90")
-ESPBox:AddLabel("AVISO: Matrix ON puede freeze — usa solo FOV")
 ESPBox:AddSlider("ESPMaxDist", {
     Text = "Max Dist", Default = 600, Min = 50, Max = 2000, Rounding = 0,
     Callback = function(v) config.ESPMaxDist = v end
 })
-ESPBox:AddToggle("Crosshair", {
-    Text = "Crosshair shako.win", Default = false,
-    Callback = function(v)
-        config.Crosshair = v
-        if v then StartCrosshair() else StopCrosshair() end
-    end
-})
-ESPBox:AddToggle("CrosshairSpin", {
-    Text = "Spin", Default = true,
-    Callback = function(v) config.CrosshairSpin = v end
-})
-ESPBox:AddSlider("CrosshairSpinSpeed", {
-    Text = "Spin speed", Default = 120, Min = 20, Max = 360, Rounding = 0,
-    Callback = function(v) config.CrosshairSpinSpeed = v end
-})
-ESPBox:AddSlider("CrosshairSize", {
-    Text = "Line length", Default = 25, Min = 8, Max = 50, Rounding = 0,
-    Callback = function(v) config.CrosshairSize = v if config.Crosshair then ShakoCross.build() end end
-})
-ESPBox:AddSlider("CrosshairGap", {
-    Text = "Gap", Default = 10, Min = 0, Max = 30, Rounding = 0,
-    Callback = function(v) config.CrosshairGap = v if config.Crosshair then ShakoCross.build() end end
-})
-ESPBox:AddSlider("CrosshairThickness", {
-    Text = "Thickness", Default = 2, Min = 1, Max = 6, Rounding = 0,
-    Callback = function(v) config.CrosshairThickness = v if config.Crosshair then ShakoCross.build() end end
-})
-ESPBox:AddToggle("CrosshairOutline", {
-    Text = "Outline", Default = true,
-    Callback = function(v) config.CrosshairOutline = v if config.Crosshair then ShakoCross.build() end end
-})
-ESPBox:AddToggle("CrosshairRainbow", {
-    Text = "Purple pulse (logo colors)", Default = true,
-    Callback = function(v) config.CrosshairRainbow = v end
-})
-ESPBox:AddInput("CrosshairText", {
-    Text = "Center text",
-    Default = "shako.win",
-    Callback = function(v) config.CrosshairText = v end
-})
-ESPBox:AddSlider("CrosshairTextSize", {
-    Text = "Text size", Default = 22, Min = 12, Max = 36, Rounding = 0,
-    Callback = function(v) config.CrosshairTextSize = v end
-})
-ESPBox:AddSlider("CrosshairOffsetX", {
-    Text = "Offset X (mira)", Default = 0, Min = -80, Max = 80, Rounding = 0,
-    Callback = function(v) config.CrosshairOffsetX = v end
-})
-ESPBox:AddSlider("CrosshairOffsetY", {
-    Text = "Offset Y (mira)", Default = 0, Min = -80, Max = 80, Rounding = 0,
-    Callback = function(v) config.CrosshairOffsetY = v end
-})
-ESPBox:AddSlider("CrosshairTextOffsetY", {
-    Text = "Texto offset Y", Default = 28, Min = 0, Max = 80, Rounding = 0,
-    Callback = function(v) config.CrosshairTextOffsetY = v end
-})
-ESPBox:AddLabel("Centro = mira real Rivals · ajusta Offset si falla")
+-- crosshair moved to visuals
 ESPBox:AddSlider("CharacterTransparency"
 , {
     Text = "Tu transparencia", Default = 0, Min = 0, Max = 1, Rounding = 2,
@@ -17502,7 +17591,7 @@ ESPBox:AddToggle("RemoveAccessories", {
     Callback = function(v) config.RemoveAccessories = v end
 })
 
-local SkyBox = Tabs.World:AddLeftGroupbox("Sky / Cielos AURORA")
+local SkyBox = Tabs.World:AddLeftGroupbox("Skybox")
 local skyNames = {"None"}
 pcall(function()
     for n in pairs(Skies or {}) do table.insert(skyNames, n) end
@@ -17559,7 +17648,7 @@ SkyBox:AddSlider("AuroraSkyStars", {
     end
 })
 
-local WeatherBox = Tabs.World:AddRightGroupbox("Weather (LuaHook)")
+local WeatherBox = Tabs.World:AddRightGroupbox("Weather")
 WeatherBox:AddToggle("WeatherEnabled", {
     Text = "Enable Weather", Default = false,
     Callback = function(v)
@@ -17680,11 +17769,85 @@ WeatherBox:AddDropdown("SkyboxPreset", {
 
 
 
-local HitFXBox = Tabs.Visual:AddRightGroupbox("Hit Feedback & Tracers")
+
+local CrossBox = Tabs.Visual:AddRightGroupbox("crosshair / mira")
+CrossBox:AddToggle("Crosshair", {
+    Text = "Crosshair", Default = false,
+    Callback = function(v)
+        config.Crosshair = v
+        if v then StartCrosshair() else StopCrosshair() end
+    end
+})
+pcall(function()
+    if addColor3 then
+        addColor3(CrossBox, "CrosshairColorPick", "Crosshair Color",
+            function() return config.CrosshairColor or Color3.fromRGB(255, 0, 0) end,
+            function(c) config.CrosshairColor = c end, function() end)
+    end
+end)
+CrossBox:AddToggle("CrosshairSpin", {
+    Text = "Spin", Default = true,
+    Callback = function(v) config.CrosshairSpin = v end
+})
+CrossBox:AddSlider("CrosshairSpinSpeed", {
+    Text = "Spin speed", Default = 120, Min = 20, Max = 360, Rounding = 0,
+    Callback = function(v) config.CrosshairSpinSpeed = v end
+})
+CrossBox:AddSlider("CrosshairSize", {
+    Text = "Line length", Default = 25, Min = 8, Max = 50, Rounding = 0,
+    Callback = function(v) config.CrosshairSize = v if config.Crosshair then pcall(function() ShakoCross.build() end) end end
+})
+CrossBox:AddSlider("CrosshairGap", {
+    Text = "Gap", Default = 10, Min = 0, Max = 30, Rounding = 0,
+    Callback = function(v) config.CrosshairGap = v if config.Crosshair then pcall(function() ShakoCross.build() end) end end
+})
+CrossBox:AddSlider("CrosshairThickness", {
+    Text = "Thickness", Default = 2, Min = 1, Max = 6, Rounding = 0,
+    Callback = function(v) config.CrosshairThickness = v if config.Crosshair then pcall(function() ShakoCross.build() end) end end
+})
+CrossBox:AddToggle("CrosshairOutline", {
+    Text = "Outline", Default = true,
+    Callback = function(v) config.CrosshairOutline = v if config.Crosshair then pcall(function() ShakoCross.build() end) end end
+})
+CrossBox:AddToggle("CrosshairRainbow", {
+    Text = "Rainbow / pulse", Default = true,
+    Callback = function(v) config.CrosshairRainbow = v end
+})
+CrossBox:AddInput("CrosshairText", {
+    Text = "Center text",
+    Default = "",
+    Callback = function(v) config.CrosshairText = v end
+})
+CrossBox:AddSlider("CrosshairTextSize", {
+    Text = "Text size", Default = 22, Min = 12, Max = 36, Rounding = 0,
+    Callback = function(v) config.CrosshairTextSize = v end
+})
+CrossBox:AddSlider("CrosshairOffsetX", {
+    Text = "Offset X", Default = 0, Min = -80, Max = 80, Rounding = 0,
+    Callback = function(v) config.CrosshairOffsetX = v end
+})
+CrossBox:AddSlider("CrosshairOffsetY", {
+    Text = "Offset Y", Default = 0, Min = -80, Max = 80, Rounding = 0,
+    Callback = function(v) config.CrosshairOffsetY = v end
+})
+CrossBox:AddSlider("CrosshairTextOffsetY", {
+    Text = "Text offset Y", Default = 28, Min = 0, Max = 80, Rounding = 0,
+    Callback = function(v) config.CrosshairTextOffsetY = v end
+})
+CrossBox:AddLabel("Alinea con la mira real de Rivals")
+
+local HitFXBox = Tabs.Visual:AddLeftGroupbox("hit feedback")
 HitFXBox:AddToggle("FXHitMarker", {
     Text = "Hit marker", Default = false,
     Callback = function(v) config.FXHitMarker = v end
 })
+addColor3(HitFXBox, "HitMarkerColorPick", "Hit Marker Color",
+    function() return config.FXHitMarkerColor or Color3.fromRGB(255,255,255) end,
+    function(c) config.FXHitMarkerColor = c end, function() end)
+addColor3(HitFXBox, "HitMarkerCritPick", "Hit Crit Color",
+    function() return config.FXHitMarkerCritColor or Color3.fromRGB(255,194,75) end,
+    function(c) config.FXHitMarkerCritColor = c end, function() end)
+
 HitFXBox:AddDropdown("FXHitMarkerStyle", {
     Text = "Marker style",
     Values = {"X", "Plus", "Circle"},
@@ -17894,7 +18057,7 @@ function SetAmbientVolume(v)
     end
 end
 
-local AmbientBox = Tabs.World:AddLeftGroupbox("Ambient Sounds")
+local AmbientBox = Tabs.World:AddLeftGroupbox("Ambient")
 AmbientBox:AddToggle("AmbientSoundEnabled", {
     Text = "Ambient Sound", Default = false,
     Callback = function(v)
@@ -17947,7 +18110,7 @@ AmbientBox:AddButton({
 AmbientBox:AddLabel("Stop ahora sí corta · varios IDs por tipo")
 
 
-local EmoteBox = Tabs.World:AddLeftGroupbox("Emotes / Anims")
+local EmoteBox = Tabs.Character:AddLeftGroupbox("emotes")
 EmoteBox:AddDropdown("EmotePreset", {
     Text = "Preset",
     Values = {"Floss", "Orange Justice", "Take The L", "Default Dance", "Electro Shuffle", "Fresh", "Robot", "Hype", "Dab", "Laugh", "Wave", "Gangnam", "Shuffle", "Breakdance", "Twist", "Zombie", "Custom A", "Custom B", "Custom C", "Custom D", "Custom E", "Custom F", "Custom G", "Custom H", "Custom I", "Custom J", "Custom K", "Custom L", "Custom"},
@@ -18119,8 +18282,8 @@ EmoteBox:AddButton({
 
 
 
-local AUBox = Tabs.Obsidian:AddLeftGroupbox("UE Counter")
-AUBox:AddToggle("UECounterToggle", {
+local AUBox = Tabs.Misc:AddLeftGroupbox("ue counter")
+local togUE = AUBox:AddToggle("UECounterToggle", {
     Text = "UE Counter", Default = false,
     Callback = function(v)
         config.UECounterEnabled = v
@@ -18133,6 +18296,8 @@ AUBox:AddToggle("UECounterToggle", {
         end
     end
 })
+bindKey(togUE, "UECounterKey", "...")
+
 AUBox:AddSlider("UECounterY", {
     Text = "Y distance", Default = 500, Min = 100, Max = 1000, Rounding = 0,
     Callback = function(v) config.UECounterY = v end
@@ -18141,10 +18306,21 @@ AUBox:AddSlider("UECounterCooldown", {
     Text = "Teleport cooldown", Default = 0.2, Min = 0, Max = 1, Rounding = 2,
     Callback = function(v) config.UECounterCooldown = v end
 })
-AUBox:AddLabel("Counters UE rage by raising your Y so they cannot track you")
+AUBox:AddSlider("UECounterHideDist", {
+    Text = "Hide dist (void height)", Default = 500, Min = 50, Max = 999999999, Rounding = 0,
+    Callback = function(v)
+        config.UECounterHideDist = v
+        config.UECounterY = v
+    end
+})
+AUBox:AddSlider("UECounterAttackSpeed", {
+    Text = "Attack speed", Default = 1, Min = 0.1, Max = 10, Rounding = 1,
+    Callback = function(v) config.UECounterAttackSpeed = v end
+})
+AUBox:AddLabel("Hide = altura void · Attack = velocidad de reposicion")
 
 
-local DefBox = Tabs.Obsidian:AddLeftGroupbox("HVH Defense")
+local DefBox = Tabs.Misc:AddLeftGroupbox("defense")
 DefBox:AddToggle("HurtEvade", {
     Text = "Hurt Evade (al recibir dmg)", Default = false,
     Callback = function(v)
@@ -18331,7 +18507,7 @@ DefBox:AddSlider("FakePeekDist", {
 })
 DefBox:AddLabel("Combo + Orbit + Height = mejor vs ragers")
 
-local AABox = Tabs.Obsidian:AddRightGroupbox("Anti Aim")
+local AABox = Tabs.Character:AddRightGroupbox("anti-aim")
 AABox:AddToggle("AntiAimToggle", {
     Text = "Anti Aim", Default = false,
     Callback = function(v) config.AntiAimEnabled = v if v then StartAntiAim() else StopAntiAim() end end
@@ -18368,11 +18544,13 @@ AABox:AddToggle("AAInvert", {
     Callback = function(v) config.AAInvert = v end
 })
 
-local MoveBox = Tabs.Movement:AddLeftGroupbox("Move")
-MoveBox:AddToggle("FlyToggle", {
+local MoveBox = Tabs.Character:AddLeftGroupbox("movement")
+local togFly = MoveBox:AddToggle("FlyToggle", {
     Text = "Fly", Default = false,
     Callback = function(v) config.FlyEnabled = v if v then StartFly() else StopFly() end end
 })
+bindKey(togFly, "FlyKey", "...")
+
 MoveBox:AddSlider("FlySpeed", {
     Text = "Fly Speed", Default = 120, Min = 30, Max = 9999, Rounding = 0,
     Callback = function(v) config.FlySpeed = v end
@@ -18381,10 +18559,12 @@ MoveBox:AddSlider("FlyBoost", {
     Text = "Fly Boost (Shift)", Default = 1.8, Min = 1, Max = 5, Rounding = 1,
     Callback = function(v) config.FlyBoost = v end
 })
-MoveBox:AddToggle("NoclipToggle", {
+local togNoclip = MoveBox:AddToggle("NoclipToggle", {
     Text = "Noclip", Default = false,
     Callback = function(v) config.NoclipEnabled = v if v then StartNoclip() else StopNoclip() end end
 })
+bindKey(togNoclip, "NoclipKey", "...")
+
 MoveBox:AddToggle("SpeedToggle", {
     Text = "Speed (Rivals)", Default = false,
     Callback = function(v)
@@ -18823,7 +19003,7 @@ pcall(function()
     -- keep legacy CharmBox name pointing same (compat)
     local CharmBox = RankBox
 
-    local MPBox = Tabs.Spoofer:AddRightGroupbox("Marketplace")
+    local MPBox = Tabs.Misc:AddRightGroupbox("marketplace")
     MPBox:AddToggle("FakeRobux", {
         Text = "Fake Robux", Default = false,
         Callback = function(v)
@@ -19063,7 +19243,7 @@ end)
 -- Misc + Configs (siempre se construyen aunque Spoofer falle)
 pcall(function()
 if not Tabs.Misc then return end
-local ACBox = Tabs.Misc:AddLeftGroupbox("Anti Detect / Misc")
+local ACBox = Tabs.Misc:AddLeftGroupbox("Anti-Kick / Misc")
 ACBox:AddToggle("AntiKick", {
     Text = "Anti Kick (cliente)", Default = true,
     Callback = function(v) config.AntiKick = v end
@@ -19082,7 +19262,7 @@ ACBox:AddButton({
 })
 
 -- HIT / KILL SONGS UI
-local SoundBox = Tabs.Misc:AddLeftGroupbox("Hit / Kill Songs")
+local SoundBox = Tabs.Misc:AddLeftGroupbox("Hit / Kill Sounds")
 SoundBox:AddToggle("HitSoundEnabled", {
     Text = "Hit Sounds", Default = true,
     Callback = function(v) config.HitSoundEnabled = v end
@@ -19199,7 +19379,7 @@ kbDrop("KBVoid", "Void Spam", "KeybindVoidSpam", 9)
 KBBox:AddLabel("KEYBINDS OFF — solo UI (slide no activa strafe)")
 end -- keybind UI
 
--- Theme: default Linoria (sin override)
+-- Theme: default Obsidian (sin override)
 end) -- end Misc pcall
 
 pcall(function()
@@ -19212,7 +19392,7 @@ if not Tabs.Configs then
 end
 if not Tabs.Configs then return end
 
-local CfgBox = Tabs.Configs:AddLeftGroupbox("Configs shako")
+local CfgBox = Tabs.Settings:AddLeftGroupbox("configs")
 local configNameInput = "default"
 local selectedConfig = "(ninguna)"
 
@@ -19299,10 +19479,10 @@ CfgBox:AddButton({
     end
 })
 
--- SaveManager / Theme de UELinoria (si cargó)
+-- SaveManager / Theme de UEObsidian (si cargó)
 pcall(function()
     if SaveManager and SaveManager.BuildConfigSection then
-        local smBox = Tabs.Configs:AddRightGroupbox("SaveManager (Linoria)")
+        local smBox = Tabs.Configs:AddRightGroupbox("SaveManager (Obsidian)")
         SaveManager:SetLibrary(Library)
         SaveManager:SetFolder("shako_win")
         pcall(function() SaveManager:IgnoreThemeSettings() end)
@@ -19319,6 +19499,12 @@ pcall(function()
 end)
 
 CfgBox:AddLabel("Guarda toggles + spoof IDs + avatar")
+
+
+
+
+
+
 RefreshCfg()
 end) -- Configs pcall
 end -- BuildUI
@@ -19396,19 +19582,20 @@ task.spawn(function()
         if config.RapidFire then StartRapidFire() end
         if config.FastMelee then StartFastMelee() end
         if config.SlideBoostEnabled then StartSlideBoostLoop() end
-        if config.StretchedRes then ApplyStretchedRes() end
+        config.StretchedRes = false -- removed
         ResetCameraNormal()
         EnsureCameraFree()
     end)
 end)
 
-Notify("shako.win", "v5.29.7 · Obsidian UI")
-print("shako.win v5.29.7 Obsidian UI")
+Notify("shako.win", "v5.32.11 · hard FPS")
+print("shako.win v5.32.11 hard FPS")
 pcall(function() task.defer(function()
     getgenv()._ShakoQuiet = true
     pcall(Cfg.TryAutoLoad)
     task.wait(2)
     getgenv()._ShakoQuiet = false
 end) end)
+
 
 pcall(function() getgenv().shako_win_ok = true end)
