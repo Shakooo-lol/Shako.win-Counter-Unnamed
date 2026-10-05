@@ -1,4 +1,4 @@
--- shako.win | v6.6.1 · HARION AA (register-safe) (UpdateCameraRotation)
+-- shako.win | v6.7.4 · damage numbers Elisium (quita los del juego)
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -450,7 +450,7 @@ do
         end)
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v6.6.1 · HARION AA · AXIS",
+            Footer = "v6.7.0 · Elisium + HARION · AXIS",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -463,6 +463,13 @@ do
         return
     end
     Window = win
+
+-- Cursor UI visible al abrir
+pcall(function()
+    Library.ShowCustomCursor = true
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    UserInputService.MouseIconEnabled = true
+end)
 end
 
 -- Forzar label Rivals (no Marketplace)
@@ -571,24 +578,10 @@ getgenv().config = {
     StrafeSpeed = 18,
 
     -- Hit / Kill Songs
-    HitSoundEnabled = false,
-    FXHitMarker = false,
-    FXHitMarkerStyle = "X",
-    FXHitMarkerColor = Color3.fromRGB(255, 255, 255),
-    FXHitMarkerCritColor = Color3.fromRGB(255, 194, 75),
-    FXHitMarkerLethalColor = Color3.fromRGB(255, 64, 78),
-    FXHitMarkerGap = 5,
-    FXHitMarkerLen = 8,
-    FXHitMarkerThickness = 2,
-    FXBeamTracer = false,
-    FXBeamStyle = "Line",
-    FXBeamHitColor = Color3.fromRGB(255, 194, 75),
-    FXBeamDuration = 0.35,
-    FXBeamThickness = 0.12,
-    FXDamageNumbers = false,
-    FXKillBanner = false,
-    FXKillBannerColor = Color3.fromRGB(255, 194, 75),
-    KillSoundEnabled = true,
+    HitSoundEnabled = false, -- legacy OFF (Elisium hitsounds)
+
+    KillSoundEnabled = false, -- OFF (user quitó kill sounds)
+
     HitSoundVolume = 6,
     KillSoundVolume = 7,
     HitSoundMode = "Random",
@@ -617,21 +610,30 @@ getgenv().config = {
     DefaultJumpPower = 50,
     DefaultJumpHeight = 7.2,
     SlideBoostEnabled = false,
+    SlideBoostSpeed = 60, -- Elisium style (direct speed on _sliding_velocity)
+    -- Disable animations (Elisium)
+    DisableAnimsEnabled = false,
+    DisableAnimsSelect = {}, -- bobbing, landing, sway, equip, inspect, sliding, shoot, impulse, aim, sprint, attack, charge, reload, throw
+
     SlideBoostMult = 2.5,
-    SlideBoostKey = "C", -- solo C por defecto
-    SlideBaseSpeed = 45, -- velocidad base del slide si Speed OFF
+    SlideBoostKey = "C", -- solo C (no Control)
+    SlideBaseSpeed = 45,
     InfinityJump = false,
 
     AntiAimEnabled = false,
     AntiAimMode = "PitchYaw",
     -- Anti Aim estilo HARION (UpdateCameraRotation remote)
-    AAPitchMode = "down",      -- disabled / up / down / zero / random
-    AAPitchOffset = 250,       -- legacy (no usado en Harion path)
-    AAPitchAngle = 0,          -- legacy
-    AAYawMode = "backwards",   -- disabled / backwards / spin / random
-    AAYawAngle = 180,          -- legacy
-    SpinSpeed = 25,            -- legacy
-    JitterAngle = 180,         -- legacy
+    AAPitchMode = "down",
+    AAPitchOffset = 250,
+    AAPitchAngle = 0,
+    AAYawMode = "jitter",      -- disabled / backwards / spin / random / jitter / side / opposite / strong
+    AAYawAngle = 180,
+    SpinSpeed = 25,
+    JitterAngle = 180,
+    AAJitterAmount = 90,       -- grados max del jitter yaw
+    AAStrongMode = false,      -- burst fuerte multi-packet
+    AAPacketBurst = 5,         -- paquetes por frame en strong
+    AASpinRate = 720,          -- deg/s spin
     ManualYaw = 180,
     AAPitch = 0,
     AAInvert = false,
@@ -661,10 +663,11 @@ getgenv().config = {
     RageVoidIterations = 120,
     RageAntiAim = false,
     BodyTwist = false,
-    BodyTwistMode = "Rager", -- Broken | Twist | Random | Lay
-    BodyTwistPower = 1.0, -- 0.2 - 2
+    BodyTwistMode = "Rager", -- Rager | Broken | Twist | Random | Lay | Ultra
+    BodyTwistPower = 1.8, -- ultra fold default
     BodyTwistSpeed = 8,
-    BodyTwistWithRage = true, -- auto on con rage
+    BodyTwistWithRage = true,
+    BodyTwistWithAA = true, -- auto con anti-aim
     RageNoclip = false,
     RagePreferredWeapon = "primary",
     RageAutoEquip = false,
@@ -724,7 +727,8 @@ getgenv().config = {
     RagebotPredict = true,
     RagebotPredictAmount = 0.12,
     -- Rivals UseItem rage
-    RageWeaponSlot = "Melee",
+    RageWeaponSlot = "Primary", -- no Fists por defecto
+
     RageFireRate = 0,
     RageAttackSpeed = 10, -- UE-style: que tan rapido se tpea/ataca (1 lento - 20 insta)
     RageDesyncKnifeY = 6,
@@ -736,6 +740,7 @@ getgenv().config = {
     RageShotsPerTick = 10,         -- Harion shoot attempts
     RageAttackMode = "gun",        -- gun | knife | melee
     RagePreferredWeapon = "primary", -- primary | secondary | melee
+
     RageWeaponSpecialize = true,
     RageSwapWhenEmpty = true,
     RageAutoPriority = false,
@@ -1082,7 +1087,8 @@ getgenv().config = {
     ESPFilledBoxTrans = 0.85,
 
     -- Bullet tracers (avanzados)
-    BulletTracerEnabled = false,
+    BulletTracerEnabled = false, -- legacy OFF (Elisium tracers)
+
     BulletTracerColor = "Cyan",
     BulletTracerDuration = 0.6,
     BulletTracerThickness = 1.2,
@@ -1099,7 +1105,8 @@ getgenv().config = {
     BulletTracerCameraOffset = 0.15,
 
     -- Stretched resolution (CFrame matrix method)
-    StretchedRes = false,
+    StretchedRes = false, -- legacy OFF (Elisium stretch)
+
     StretchedScale = 0.81, -- Y scale (0.5 = mas stretch, 1.0 = normal)
 
     ThirdPerson = false,
@@ -1303,9 +1310,23 @@ task.spawn(function()
     while true do
         task.wait(4) -- OPT
         if not config.RagebotEnabled or not modulesOK then continue end
+        -- NO forzar Melee/Fists: usar slot elegido (Primary por defecto)
+        local slotName = config.RageWeaponSlot or "Primary"
+        local pref = tostring(config.RagePreferredWeapon or "primary"):lower()
+        if pref == "melee" or pref == "knife" then
+            slotName = "Melee"
+        elseif pref == "secondary" then
+            slotName = "Secondary"
+        elseif pref == "primary" then
+            slotName = "Primary"
+        end
+        -- si el user eligió Primary/Secondary, NUNCA poner Fists
+        if slotName == "Melee" and pref ~= "melee" and pref ~= "knife" then
+            slotName = "Primary"
+        end
+        local slot = rageSlots[slotName] or 1
         local lf = FighterController and FighterController.LocalFighter
-        if lf then
-            local slot = rageSlots[config.RageWeaponSlot or "Melee"] or 3
+        if lf and config.RageWeaponSpecialize ~= false then
             pcall(function() lf:EquipItem(slot) end)
         end
     end
@@ -3594,7 +3615,8 @@ function SFX.hit()
 end
 
 function SFX.kill()
-    if not config.KillSoundEnabled then return end
+    -- Kill sounds desactivados por defecto / user request
+    if config.KillSoundEnabled ~= true then return end
     local now = tick()
     if now - (SFX.lastKill or 0) < (tonumber(config.KillSoundCooldown) or 0.15) then return end
     SFX.lastKill = now
@@ -3623,12 +3645,30 @@ task.spawn(function()
         local orig = ClientViewModel.PlayHitmarkerSound
         ClientViewModel.PlayHitmarkerSound = function(self, is_crit, distance)
             local ctx = self.ClientItem and self.ClientItem.ClientFighter and self.ClientItem.ClientFighter.Player
-            if ctx == LocalPlayer and config.HitSoundEnabled then
+            -- SOLO hits del LocalPlayer (no sonidos de otros)
+            if ctx ~= LocalPlayer then
+                return orig(self, is_crit, distance)
+            end
+            -- marca hit local para damage numbers
+            getgenv()._ShakoLocalHitAt = tick()
+            getgenv()._ShakoLocalHitCrit = is_crit and true or false
+
+            if config.EliHitSound then
+                pcall(function()
+                    local Eli = getgenv()._ShakoEli
+                    if Eli and Eli.playHit then Eli.playHit() end
+                end)
+                if config.EliHitRemoveDefault ~= false then
+                    return -- solo nuestro sonido
+                end
+            end
+
+            if config.HitSoundEnabled then
                 local name = config.SelectedHitSound or "Neverlose"
-                if config.HitSoundMode == "Random" then
+                if config.HitSoundMode == "Random" and SFX.hitNames and #SFX.hitNames > 0 then
                     name = SFX.hitNames[math.random(1, #SFX.hitNames)]
                 end
-                local id = SFX.hitSounds[name]
+                local id = SFX.hitSounds and SFX.hitSounds[name]
                 if id then
                     pcall(function()
                         local vol = (config.HitSoundVolume or 2)
@@ -3642,7 +3682,7 @@ task.spawn(function()
                                 self:_CreateHitmarkerSound("rbxassetid://"..id, (1.5/math.max(dist,0.1)), pitch, vm_module, true, 1)
                             end
                         else
-                            SFX.play(id, vol)
+                            SFX.play(id, vol, pitch)
                         end
                     end)
                     return
@@ -3657,25 +3697,34 @@ end)
 -- Detección de hit: HealthChanged (fiable) + poll de respaldo
 local function sfxOnDamage(plr, newHp, oldHp)
     if not plr or plr == LocalPlayer then return end
-    if not (config.HitSoundEnabled or config.KillSoundEnabled) then return end
+    if not (config.HitSoundEnabled or config.KillSoundEnabled or config.EliHitSound) then return end
     oldHp = tonumber(oldHp) or SFX.hp[plr]
     newHp = tonumber(newHp)
     if newHp == nil then return end
-    -- ignorar micro cambios / regeneración / sync al equipar
     if oldHp == nil then
         SFX.hp[plr] = newHp
         return
     end
     local drop = oldHp - newHp
-    -- kill
+    -- SOLO si TÚ pegaste hace poco (PlayHitmarkerSound local)
+    local hitAt = tonumber(getgenv()._ShakoLocalHitAt) or 0
+    local myHit = (tick() - hitAt) < 0.5
+    if not myHit then
+        SFX.hp[plr] = newHp
+        return
+    end
     if oldHp > 0 and newHp <= 0 then
         if config.KillSoundEnabled then SFX.kill() end
         SFX.hp[plr] = newHp
         return
     end
-    -- hit real: bajó al menos ~2 HP (evita ruido de weapon switch / replicate)
     if drop >= 2 then
-        if config.HitSoundEnabled then SFX.hit() end
+        -- hitsound: preferir Eli (ya sonó en PlayHitmarker); no doblar
+        if config.EliHitSound then
+            -- ya lo reprodujo el hook de hitmarker local
+        elseif config.HitSoundEnabled then
+            SFX.hit()
+        end
     end
     SFX.hp[plr] = newHp
 end
@@ -3751,263 +3800,6 @@ for _, plr in ipairs(Players:GetPlayers()) do
         end)
     end
 end
-
-
--- ==================== HIT FEEDBACK & TRACERS (LuaHook-style) ====================
-local HitFX = { folder = nil, hmGui = nil, bannerGui = nil, lastBanner = 0 }
-
-local function hitFxColor(key, default)
-    local c = config[key]
-    if typeof(c) == "Color3" then return c end
-    return default
-end
-
-local function ensureHitFxFolder()
-    if HitFX.folder and HitFX.folder.Parent then return HitFX.folder end
-    local f = Instance.new("Folder")
-    f.Name = "ShakoHitFX"
-    f.Parent = workspace
-    HitFX.folder = f
-    return f
-end
-
-function HitFX.spawnBeam(muzzlePos, hitPos)
-    if not config.FXBeamTracer then return end
-    if not muzzlePos or not hitPos then return end
-    local dist = (hitPos - muzzlePos).Magnitude
-    if dist < 0.5 or dist > 2000 then return end
-    local style = tostring(config.FXBeamStyle or "Line")
-    local color = hitFxColor("FXBeamHitColor", Color3.fromRGB(255, 194, 75))
-    local dur = tonumber(config.FXBeamDuration) or 0.35
-    local thick = tonumber(config.FXBeamThickness) or 0.12
-    local folder = ensureHitFxFolder()
-    local mid = (muzzlePos + hitPos) * 0.5
-    local part = Instance.new("Part")
-    part.Name = "ShakoBeam"
-    part.Anchored = true
-    part.CanCollide = false
-    part.CanQuery = false
-    part.CanTouch = false
-    part.CastShadow = false
-    part.Material = (style == "Glow" or style == "Prism") and Enum.Material.Neon or Enum.Material.SmoothPlastic
-    part.Color = color
-    part.Transparency = style == "Line" and 0.15 or 0.05
-    part.Size = Vector3.new(thick, thick, dist)
-    part.CFrame = CFrame.lookAt(mid, hitPos)
-    part.Parent = folder
-    if style == "Glow" or style == "Prism" then
-        local a0 = Instance.new("Attachment"); a0.Parent = part
-        local a1 = Instance.new("Attachment"); a1.Parent = part
-        a0.Position = Vector3.new(0, 0, -dist/2)
-        a1.Position = Vector3.new(0, 0, dist/2)
-        local beam = Instance.new("Beam")
-        beam.Attachment0 = a0
-        beam.Attachment1 = a1
-        beam.Color = ColorSequence.new(color)
-        beam.Width0 = thick * 4
-        beam.Width1 = thick * 1.2
-        beam.LightEmission = 1
-        beam.FaceCamera = true
-        beam.Parent = part
-        if style == "Prism" then
-            beam.Texture = "rbxassetid://446111271"
-            beam.TextureSpeed = 2
-            beam.TextureLength = 4
-        end
-    end
-    if style == "Arc" then
-        part.Size = Vector3.new(thick * 1.5, thick * 1.5, dist)
-        part.Transparency = 0.25
-    end
-    task.delay(dur, function() pcall(function() part:Destroy() end) end)
-end
-
-function HitFX.triggerMarker(crit, lethal)
-    if not config.FXHitMarker then return end
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return end
-    local gui = HitFX.hmGui
-    if not gui or not gui.Parent then
-        gui = Instance.new("ScreenGui")
-        gui.Name = "ShakoHitMarker"
-        gui.IgnoreGuiInset = true
-        gui.ResetOnSpawn = false
-        gui.DisplayOrder = 100
-        gui.Parent = pg
-        HitFX.hmGui = gui
-    end
-    for _, c in ipairs(gui:GetChildren()) do c:Destroy() end
-    local color = hitFxColor("FXHitMarkerColor", Color3.fromRGB(255, 255, 255))
-    if crit then color = hitFxColor("FXHitMarkerCritColor", Color3.fromRGB(255, 194, 75)) end
-    if lethal then color = hitFxColor("FXHitMarkerLethalColor", Color3.fromRGB(255, 64, 78)) end
-    local style = tostring(config.FXHitMarkerStyle or "X")
-    local gap = tonumber(config.FXHitMarkerGap) or 5
-    local len = tonumber(config.FXHitMarkerLen) or 8
-    local th = tonumber(config.FXHitMarkerThickness) or 2
-    local function line(x1, y1, x2, y2)
-        local f = Instance.new("Frame")
-        f.BackgroundColor3 = color
-        f.BorderSizePixel = 0
-        f.AnchorPoint = Vector2.new(0.5, 0.5)
-        local dx, dy = x2 - x1, y2 - y1
-        local dist = math.sqrt(dx*dx + dy*dy)
-        f.Size = UDim2.new(0, math.max(dist, 1), 0, th)
-        f.Position = UDim2.new(0.5, (x1+x2)/2, 0.5, (y1+y2)/2)
-        f.Rotation = math.deg(math.atan2(dy, dx))
-        f.Parent = gui
-        return f
-    end
-    local frames = {}
-    if style == "Circle" then
-        local r = Instance.new("Frame")
-        r.BackgroundTransparency = 1
-        r.Size = UDim2.new(0, (gap+len)*2, 0, (gap+len)*2)
-        r.AnchorPoint = Vector2.new(0.5, 0.5)
-        r.Position = UDim2.new(0.5, 0, 0.5, 0)
-        r.Parent = gui
-        local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = r
-        local s = Instance.new("UIStroke"); s.Color = color; s.Thickness = th; s.Parent = r
-        frames[#frames+1] = r
-    elseif style == "Plus" then
-        frames[#frames+1] = line(0, -(gap+len), 0, -gap)
-        frames[#frames+1] = line(0, gap, 0, gap+len)
-        frames[#frames+1] = line(-(gap+len), 0, -gap, 0)
-        frames[#frames+1] = line(gap, 0, gap+len, 0)
-    else
-        local d = 0.7071
-        frames[#frames+1] = line(-d*(gap+len), -d*(gap+len), -d*gap, -d*gap)
-        frames[#frames+1] = line(d*gap, d*gap, d*(gap+len), d*(gap+len))
-        frames[#frames+1] = line(d*(gap+len), -d*(gap+len), d*gap, -d*gap)
-        frames[#frames+1] = line(-d*gap, d*gap, -d*(gap+len), d*(gap+len))
-    end
-    task.delay(0.22, function()
-        for _, f in ipairs(frames) do pcall(function() f:Destroy() end) end
-    end)
-end
-
-function HitFX.pushDamageNumber(worldPos, dmg, crit, lethal)
-    if not config.FXDamageNumbers then return end
-    if not worldPos then return end
-    local p = Instance.new("Part")
-    p.Anchored = true; p.CanCollide = false; p.Transparency = 1
-    p.Size = Vector3.new(0.2,0.2,0.2)
-    p.Position = worldPos + Vector3.new(0, 1.2, 0)
-    p.Parent = ensureHitFxFolder()
-    local bill = Instance.new("BillboardGui")
-    bill.Size = UDim2.new(0, 80, 0, 40)
-    bill.StudsOffset = Vector3.new(math.random(-8,8)/10, 0.5, 0)
-    bill.AlwaysOnTop = true
-    bill.Adornee = p
-    bill.Parent = p
-    local t = Instance.new("TextLabel")
-    t.BackgroundTransparency = 1
-    t.Size = UDim2.new(1,0,1,0)
-    t.Font = Enum.Font.GothamBold
-    t.TextSize = crit and 22 or 18
-    t.TextStrokeTransparency = 0.4
-    t.Text = tostring(math.floor((dmg or 0) + 0.5))
-    if lethal then
-        t.TextColor3 = hitFxColor("FXHitMarkerLethalColor", Color3.fromRGB(255, 64, 78))
-    elseif crit then
-        t.TextColor3 = hitFxColor("FXHitMarkerCritColor", Color3.fromRGB(255, 194, 75))
-    else
-        t.TextColor3 = Color3.fromRGB(255, 255, 255)
-    end
-    t.Parent = bill
-    task.spawn(function()
-        for i = 1, 20 do
-            p.Position = p.Position + Vector3.new(0, 0.08, 0)
-            t.TextTransparency = i / 22
-            t.TextStrokeTransparency = 0.4 + i/30
-            task.wait(0.03)
-        end
-        pcall(function() p:Destroy() end)
-    end)
-end
-
-function HitFX.triggerKillBanner(name)
-    if not config.FXKillBanner then return end
-    if tick() - HitFX.lastBanner < 0.4 then return end
-    HitFX.lastBanner = tick()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return end
-    if HitFX.bannerGui then pcall(function() HitFX.bannerGui:Destroy() end) end
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "ShakoKillBanner"
-    gui.IgnoreGuiInset = true
-    gui.ResetOnSpawn = false
-    gui.DisplayOrder = 120
-    gui.Parent = pg
-    HitFX.bannerGui = gui
-    local lab = Instance.new("TextLabel")
-    lab.BackgroundTransparency = 1
-    lab.Size = UDim2.new(0.5, 0, 0, 36)
-    lab.Position = UDim2.new(0.25, 0, 0.18, 0)
-    lab.Font = Enum.Font.GothamBold
-    lab.TextSize = 28
-    lab.TextColor3 = hitFxColor("FXKillBannerColor", Color3.fromRGB(255, 194, 75))
-    lab.TextStrokeTransparency = 0.3
-    lab.Text = "ELIMINATED  " .. tostring(name or "")
-    lab.Parent = gui
-    task.spawn(function()
-        for i = 1, 15 do
-            lab.TextTransparency = i / 18
-            lab.TextStrokeTransparency = 0.3 + i/25
-            task.wait(0.05)
-        end
-        pcall(function() gui:Destroy() end)
-        if HitFX.bannerGui == gui then HitFX.bannerGui = nil end
-    end)
-end
-
-function HitFX.onHit(plr, dmg, wasKill, hitPos)
-    local crit = (tonumber(dmg) or 0) >= 40
-    local lethal = wasKill and true or false
-    HitFX.triggerMarker(crit, lethal)
-    if hitPos then
-        HitFX.pushDamageNumber(hitPos, dmg or 0, crit, lethal)
-        local cam = workspace.CurrentCamera
-        if cam and config.FXBeamTracer then
-            local origin = cam.CFrame.Position + cam.CFrame.RightVector * 1.2 - cam.CFrame.UpVector * 0.9 + cam.CFrame.LookVector * 1.2
-            HitFX.spawnBeam(origin, hitPos)
-        end
-    elseif config.FXBeamTracer and plr and plr.Character then
-        local cam = workspace.CurrentCamera
-        local head = plr.Character:FindFirstChild("Head")
-        if cam and head then
-            HitFX.spawnBeam(cam.CFrame.Position + cam.CFrame.LookVector * 2, head.Position)
-        end
-    end
-    if lethal and plr then
-        HitFX.triggerKillBanner(plr.DisplayName or plr.Name)
-    end
-end
-
--- HP drop detector (OPT: cada 0.1s, no cada frame)
-task.spawn(function()
-    task.wait(1)
-    local last = {}
-    while true do
-        task.wait(0.1)
-        if not (config.FXHitMarker or config.FXBeamTracer or config.FXDamageNumbers or config.FXKillBanner) then
-            continue
-        end
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr == LocalPlayer then continue end
-            local char = plr.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not hum then continue end
-            local hp = hum.Health
-            local prev = last[plr]
-            if prev and hp < prev - 0.5 then
-                local dmg = prev - hp
-                local head = char:FindFirstChild("Head")
-                HitFX.onHit(plr, dmg, hp <= 0 and prev > 0, head and head.Position)
-            end
-            last[plr] = hp
-        end
-    end
-end)
 
 
 -- ==================== SPOOFER (nombres + perfil UI) ====================
@@ -5851,31 +5643,32 @@ function StartSlideBoostLoop()
         pcall(function() SlideBoostConn:Disconnect() end)
         SlideBoostConn = nil
     end
-    -- MechanicsController slide velocity (Rivals)
-    local mech
+    -- Elisium method: MechanicsController.IsSliding + _sliding_velocity
+    local mech = nil
     pcall(function()
         mech = require(LocalPlayer.PlayerScripts.Controllers.MechanicsController)
     end)
     SlideBoostConn = RunService.RenderStepped:Connect(function()
         if not config.SlideBoostEnabled then return end
-        local speed = tonumber(config.SlideBoostSpeed) or tonumber(config.SlideBoostMult) and (tonumber(config.SlideBoostMult) * 40) or 100
-        speed = tonumber(config.SlideBoostSpeed) or 100
         if not mech then
             pcall(function()
                 mech = require(LocalPlayer.PlayerScripts.Controllers.MechanicsController)
             end)
         end
         if not mech then return end
-        local okSliding = false
-        pcall(function() okSliding = mech.IsSliding == true end)
-        if not okSliding then return end
+        local sliding = false
+        pcall(function() sliding = mech.IsSliding == true end)
+        if not sliding then return end
+        local speed = tonumber(config.SlideBoostSpeed)
+        if not speed or speed <= 0 then
+            -- fallback desde mult (compat viejo)
+            speed = (tonumber(config.SlideBoostMult) or 2.5) * 40
+        end
+        speed = math.clamp(speed, 1, 200)
         pcall(function()
             local sv = mech._sliding_velocity
-            if sv and sv.Velocity then
-                local v = sv.Velocity
-                if v.Magnitude > 0.05 then
-                    sv.Velocity = v.Unit * speed
-                end
+            if sv and sv.Velocity and sv.Velocity.Magnitude > 0.05 then
+                sv.Velocity = sv.Velocity.Unit * speed
             end
         end)
     end)
@@ -5887,6 +5680,133 @@ function StopSlideBoostLoop()
         SlideBoostConn = nil
     end
 end
+
+
+-- ==================== DISABLE ANIMATIONS (Elisium) ====================
+getgenv()._ShakoDisableAnims = getgenv()._ShakoDisableAnims or { hooked = {}, ready = false }
+
+local function daHas(typ)
+    if not config.DisableAnimsEnabled then return false end
+    local sel = config.DisableAnimsSelect
+    if type(sel) ~= "table" then return false end
+    for _, v in pairs(sel) do
+        if tostring(v):lower() == tostring(typ):lower() then return true end
+    end
+    -- multi dropdown sometimes uses keys as values
+    if sel[typ] == true then return true end
+    return false
+end
+
+local function daHookAnim(vm)
+    local S = getgenv()._ShakoDisableAnims
+    local anim = nil
+    pcall(function() anim = rawget(vm, "Animator") end)
+    if not anim or S.hooked[anim] then return end
+    S.hooked[anim] = true
+    local orig = nil
+    pcall(function()
+        orig = rawget(anim, "PlayAnimation")
+        if not orig then
+            local mt = getmetatable(anim)
+            if mt then orig = rawget(mt, "PlayAnimation") end
+        end
+    end)
+    if type(orig) ~= "function" then return end
+    pcall(function()
+        anim.PlayAnimation = function(self, key, ...)
+            if config.DisableAnimsEnabled then
+                local k = tostring(key or ""):lower()
+                if daHas("shoot") and k:find("shoot") then return end
+                if daHas("attack") and k:find("attack") then return end
+                if daHas("charge") and k:find("charge") then return end
+                if daHas("equip") and k:find("equip") then return end
+                if daHas("reload") and k:find("reload") then return end
+                if daHas("throw") and k:find("throw") then return end
+                if daHas("aim") and k:find("aim") then return end
+                if daHas("sprint") and k:find("sprint") then return end
+                if daHas("sliding") and (k:find("slide") or k:find("sliding")) then return end
+                if daHas("inspect") and k:find("inspect") then return end
+                if daHas("impulse") and k:find("impulse") then return end
+            end
+            return orig(self, key, ...)
+        end
+    end)
+end
+
+local function daApplyViewModel(c)
+    if not config.DisableAnimsEnabled or not c then return end
+    pcall(function()
+        if daHas("bobbing") then
+            if c._bobbing_value_spring then
+                c._bobbing_value_spring.Value = Vector2.new(0, 0)
+                c._bobbing_value_spring.Target = Vector2.new(0, 0)
+            end
+            if c._bobbing_speed_spring then
+                c._bobbing_speed_spring.Value = 0
+                c._bobbing_speed_spring.Target = 0
+            end
+            c._bobbing_tick = 0
+        end
+        if daHas("landing") then
+            if c._landing_spring then c._landing_spring.Value = 0; c._landing_spring.Target = 0 end
+            if c._jump_spring then c._jump_spring.Value = 0; c._jump_spring.Target = 0 end
+        end
+        if daHas("sway") then
+            if c._sway_spring then c._sway_spring.Value = Vector2.new(0,0); c._sway_spring.Target = Vector2.new(0,0) end
+            if c._tilt_spring then c._tilt_spring.Value = Vector2.new(0,0); c._tilt_spring.Target = Vector2.new(0,0) end
+        end
+        if daHas("equip") and c._equip_spring then
+            c._equip_spring.Position = c._equip_spring.Target
+            c._equip_spring.Velocity = 0
+        end
+    end)
+end
+
+task.spawn(function()
+    task.wait(2)
+    pcall(function()
+        local path = LocalPlayer.PlayerScripts:FindFirstChild("Modules")
+        path = path and path:FindFirstChild("ClientReplicatedClasses")
+        path = path and path:FindFirstChild("ClientFighter")
+        path = path and path:FindFirstChild("ClientItem")
+        local vm_module = path and path:FindFirstChild("ClientViewModel")
+        if not vm_module then
+            -- try alternate path
+            path = LocalPlayer.PlayerScripts:FindFirstChild("Controllers")
+            return
+        end
+        local ClientViewModel = require(vm_module)
+        if not ClientViewModel then return end
+        local S = getgenv()._ShakoDisableAnims
+        if S.ready then return end
+        S.ready = true
+        local oldUpdate = ClientViewModel.Update
+        if type(oldUpdate) == "function" then
+            ClientViewModel.Update = function(c, dt, movement_state, render_data)
+                local isLocal = false
+                pcall(function()
+                    isLocal = c.ClientItem and c.ClientItem.ClientFighter and c.ClientItem.ClientFighter.IsLocalPlayer
+                end)
+                if isLocal then
+                    daHookAnim(c)
+                    daApplyViewModel(c)
+                end
+                return oldUpdate(c, dt, movement_state, render_data)
+            end
+        end
+        print("[shako] disable animations hooked (Elisium)")
+    end)
+end)
+
+function StartDisableAnims()
+    config.DisableAnimsEnabled = true
+    if not getgenv()._ShakoQuiet then Notify("Anims", "Disable ON") end
+end
+function StopDisableAnims()
+    config.DisableAnimsEnabled = false
+    if not getgenv()._ShakoQuiet then Notify("Anims", "Disable OFF") end
+end
+
 
 -- ==================== MANIPULATION (wall / height scan) ====================
 local manipRay = RaycastParams.new()
@@ -6284,12 +6204,14 @@ function rageEquipPreferred()
     if _rageSwapBusy then return end
     if tick() < _rageReloadUntil then return end
     local mode = tostring(config.RageAttackMode or "gun")
-    local pref = tostring(config.RagePreferredWeapon or "primary")
-    if mode == "knife" or mode == "melee" or pref == "melee" then
+    local pref = tostring(config.RagePreferredWeapon or "primary"):lower()
+    -- solo melee si el usuario lo pidió explícitamente
+    if (mode == "knife" or mode == "melee") and (pref == "melee" or pref == "knife") then
         if _rageSlot ~= 3 then ragePressSlot(3) end
     elseif pref == "secondary" then
         if _rageSlot ~= 2 then ragePressSlot(2) end
     else
+        -- Primary / gun default — NUNCA puños
         if _rageSlot ~= 1 then ragePressSlot(1) end
     end
 end
@@ -6368,7 +6290,7 @@ function rageHandleEmptyAmmo(item)
 end
 
 
--- ==================== BODY TWIST (pose torcida rager) ====================
+-- ==================== BODY TWIST (OPCIONAL — Anti Aim usa Harion remote, NO esto) ====================
 -- Deforma Motor6D C0 para que te vean "roto" / torcido
 getgenv()._ShakoTwist = getgenv()._ShakoTwist or { orig = {}, conn = nil, t = 0 }
 
@@ -6455,17 +6377,17 @@ local function twistOffsets(mode, power, t, name)
         rx = math.rad((math.noise(seed, 1, 0) * 120) * p)
         ry = math.rad((math.noise(seed, 2, 0) * 120) * p)
         rz = math.rad((math.noise(seed, 3, 0) * 120) * p)
-    elseif mode == "Rager" or mode == "Broken" then
+    elseif mode == "Rager" or mode == "Broken" or mode == "Ultra" then
         -- estilo rager HVH: cuerpo invertido / limbs doblados (como la foto)
         if n:find("root") then
             -- voltear el torso casi de cabeza
-            rx, ry, rz = math.rad(165) * p, math.rad(40) * p, math.rad(25) * p
+            rx, ry, rz = math.rad(175) * p, math.rad(90) * p, math.rad(60) * p
         elseif n:find("waist") then
-            rx, ry, rz = math.rad(90) * p, math.rad(-35) * p, math.rad(55) * p
+            rx, ry, rz = math.rad(120) * p, math.rad(-70) * p, math.rad(90) * p
         elseif n:find("neck") then
-            rx, ry, rz = math.rad(-120) * p, math.rad(80) * p, math.rad(45) * p
+            rx, ry, rz = math.rad(-160) * p, math.rad(120) * p, math.rad(70) * p
         elseif n:find("leftshoulder") or n == "left shoulder" then
-            rx, ry, rz = math.rad(70) * p, math.rad(50) * p, math.rad(140) * p
+            rx, ry, rz = math.rad(110) * p, math.rad(80) * p, math.rad(170) * p
         elseif n:find("rightshoulder") or n == "right shoulder" then
             rx, ry, rz = math.rad(-50) * p, math.rad(-60) * p, math.rad(-150) * p
         elseif n:find("leftelbow") then
@@ -6491,7 +6413,7 @@ local function twistOffsets(mode, power, t, name)
         end
     else -- fallback Broken-like
         if n:find("root") then
-            rx, ry, rz = math.rad(165) * p, math.rad(40) * p, math.rad(25) * p
+            rx, ry, rz = math.rad(175) * p, math.rad(90) * p, math.rad(60) * p
         elseif n:find("waist") then
             rx, rz = math.rad(90) * p, math.rad(55) * p
         elseif n:find("neck") then
@@ -6511,48 +6433,89 @@ function StartBodyTwist()
     config.BodyTwist = true
     local S = getgenv()._ShakoTwist
     if S.conn then pcall(function() S.conn:Disconnect() end) S.conn = nil end
+    if S.bind then pcall(function() RunService:UnbindFromRenderStep(S.bind) end) S.bind = nil end
     S.t = 0
-    S.conn = RunService.RenderStepped:Connect(function(dt)
-        if not config.BodyTwist then return end
+    S.orig = S.orig or {}
+
+    -- Parar animaciones del juego para que NO pisen el C0 de Motor6D
+    pcall(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            for _, tr in ipairs(hum:GetPlayingAnimationTracks()) do
+                pcall(function() tr:Stop(0) end)
+            end
+        end
+        local anim = char:FindFirstChild("Animate")
+        if anim and anim:IsA("LocalScript") then
+            S.animateWas = anim.Enabled
+            anim.Enabled = false
+        end
+    end)
+
+    local function applyPose()
+        -- Anti Aim YA NO usa Motor6D (Harion remote only)
         if not (config.BodyTwist or (config.BodyTwistWithRage and config.RagebotEnabled)) then return end
         local char = LocalPlayer.Character
         if not char then return end
         local motors = twistFindMotors(char)
         if #motors == 0 then return end
         twistSaveOrig(motors)
-        S.t = S.t + (dt or 0.016)
-        local mode = tostring(config.BodyTwistMode or "Broken")
-        local power = tonumber(config.BodyTwistPower) or 1
+        S.t = (S.t or 0) + 0.016
+
+        local mode = tostring(config.BodyTwistMode or "Rager")
+        local power = tonumber(config.BodyTwistPower) or 1.8
+
+        -- Cada Motor6D del body (cabeza, torso, brazos, piernas)
         for _, m in ipairs(motors) do
             local base = S.orig[m]
             if base then
                 local off = twistOffsets(mode, power, S.t, m.Name)
-                pcall(function()
-                    m.C0 = base * off
-                end)
+                pcall(function() m.C0 = base * off end)
             end
         end
-        -- Rager: volcar el HRP un poco (se ve invertido como en la foto)
-        if mode == "Rager" or mode == "Broken" then
+
+        -- Extra fold en partes visibles (no solo joints)
+        pcall(function()
             local root = char:FindFirstChild("HumanoidRootPart")
-            if root and not S.rootBase then
-                S.rootBase = true -- flag only; no permanent CF lock (rage desync maneja pos)
-            end
-            -- usar Root Motor ya torcido; extra: Head look raro
+            local upper = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
             local head = char:FindFirstChild("Head")
-            local neck = nil
+            local low = char:FindFirstChild("LowerTorso")
+            -- Neck ultra
             for _, m in ipairs(motors) do
-                if string.lower(m.Name) == "neck" then neck = m break end
+                local nm = string.lower(m.Name)
+                if nm == "neck" and S.orig[m] then
+                    m.C0 = S.orig[m] * CFrame.Angles(math.rad(-170) * power, math.rad(150) * power, math.rad(90) * power)
+                elseif nm:find("waist") and S.orig[m] then
+                    m.C0 = S.orig[m] * CFrame.Angles(math.rad(130) * power, math.rad(-80) * power, math.rad(100) * power)
+                elseif (nm:find("shoulder") or nm:find("elbow")) and S.orig[m] then
+                    local s = nm:find("left") and -1 or 1
+                    m.C0 = S.orig[m] * CFrame.Angles(math.rad(100) * power, math.rad(70) * s * power, math.rad(160) * s * power)
+                end
             end
-            if neck and S.orig[neck] then
-                pcall(function()
-                    neck.C0 = S.orig[neck] * CFrame.Angles(math.rad(-130) * power, math.rad(90) * power, math.rad(30) * power)
-                end)
+        end)
+
+        -- Silenciar anims cada frame (el juego las reactiva)
+        pcall(function()
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                for _, tr in ipairs(hum:GetPlayingAnimationTracks()) do
+                    pcall(function() tr:Stop(0) end)
+                end
             end
-        end
+        end)
+    end
+
+    -- RenderStep al FINAL para pisar al Animate del juego
+    S.bind = "ShakoBodyAA_" .. tostring(math.random(1000, 9999))
+    pcall(function()
+        RunService:BindToRenderStep(S.bind, Enum.RenderPriority.Character.Value + 50, applyPose)
     end)
+    S.conn = RunService.Heartbeat:Connect(applyPose)
+
     if not getgenv()._ShakoQuiet then
-        Notify("Twist", "ON · " .. tostring(config.BodyTwistMode or "Broken"))
+        Notify("Twist", "BODY AA · mueve todo el personaje")
     end
 end
 
@@ -6560,7 +6523,15 @@ function StopBodyTwist()
     config.BodyTwist = false
     local S = getgenv()._ShakoTwist
     if S.conn then pcall(function() S.conn:Disconnect() end) S.conn = nil end
+    if S.bind then pcall(function() RunService:UnbindFromRenderStep(S.bind) end) S.bind = nil end
     twistRestore()
+    pcall(function()
+        local char = LocalPlayer.Character
+        local anim = char and char:FindFirstChild("Animate")
+        if anim and anim:IsA("LocalScript") then
+            anim.Enabled = (S.animateWas ~= false)
+        end
+    end)
     S.orig = {}
     if not getgenv()._ShakoQuiet and not (getgenv()._ShakoBootAt and tick() - getgenv()._ShakoBootAt < 8) then
         Notify("Twist", "OFF")
@@ -6893,7 +6864,7 @@ end
 StartRagebot = function()
     config.RagebotEnabled = true
     config.RageUseItem = true
-    config.RageDesync = true -- no ves el TP
+    if config.RageDesync == nil then config.RageDesync = true end -- default ON; respeta toggle
     AxisRage.active = true
     AxisRage.gen = AxisRage.gen + 1
     AxisRage.home = nil
@@ -6919,16 +6890,35 @@ StartRagebot = function()
         pcall(StopBodyTwist)
     end
     if config.RageDesync ~= false then
-        Connections.RageDesyncVis = RunService.RenderStepped:Connect(function()
+        -- Desync fuerte (estilo Harion): BindToRenderStep prioridad Camera
+        -- TÚ siempre ves clientCF/home; el servidor recibe el TP de ataque
+        pcall(function() RunService:UnbindFromRenderStep("__as_rage_desync") end)
+        RunService:BindToRenderStep("__as_rage_desync", Enum.RenderPriority.Camera.Value, function()
             if not config.RagebotEnabled or not AxisRage.active then return end
+            if config.RageDesync == false then return end
             local visual = AxisRage.clientCF or AxisRage.home
             if not visual then return end
-            -- solo restaurar si no estamos en el frame de fire
-            if AxisRage.needRestore then return end
+            -- Durante needRestore dejamos 1 frame de ataque, luego forzamos visual
             local r = axisGetRoot(LocalPlayer.Character)
             if not r then return end
-            -- si te alejaste mucho del home por el TP, snap visual
-            if (r.Position - visual.Position).Magnitude > 3 then
+            if AxisRage.needRestore then
+                -- frame de fire: no tocar (remote sale con pos ataque)
+                return
+            end
+            pcall(function()
+                r.CFrame = visual
+                r.AssemblyLinearVelocity = Vector3.zero
+                r.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end)
+        -- backup Heartbeat por si RenderStep falla
+        Connections.RageDesyncVis = RunService.Heartbeat:Connect(function()
+            if not config.RagebotEnabled or not AxisRage.active or config.RageDesync == false then return end
+            if AxisRage.needRestore then return end
+            local visual = AxisRage.clientCF or AxisRage.home
+            local r = axisGetRoot(LocalPlayer.Character)
+            if not visual or not r then return end
+            if (r.Position - visual.Position).Magnitude > 1.5 then
                 pcall(function()
                     r.CFrame = visual
                     r.AssemblyLinearVelocity = Vector3.zero
@@ -6948,6 +6938,7 @@ StopRagebot = function()
     AxisRage.active = false
     SafeDisconnect("Ragebot")
     SafeDisconnect("RageDesyncVis")
+    pcall(function() RunService:UnbindFromRenderStep("__as_rage_desync") end)
     if config.BodyTwistWithRage ~= false then
         pcall(StopBodyTwist)
     end
@@ -7027,18 +7018,20 @@ StartNoclip = function()
 end
 StopNoclip = function() SafeDisconnect("Noclip") end
 
--- ==================== ANTI AIM (HARION) — 0 locals extra (register-safe) ====================
--- Todo en getgenv()._ShakoAA para no gastar registros del chunk principal.
+-- ==================== ANTI AIM (HARION+) — register-safe ====================
 do
     local AA = getgenv()._ShakoAA
-    if type(AA) ~= "table" then
-        AA = {}
-        getgenv()._ShakoAA = AA
-    end
+    if type(AA) ~= "table" then AA = {} getgenv()._ShakoAA = AA end
     AA.task = nil
     AA.util = nil
     AA.cam = nil
     AA.remote = nil
+    AA.jitterSide = 1
+    AA.nextJitter = 0
+    AA.jitterYaw = 0
+    AA.contYaw = 0      -- yaw continuo (no wrap ±180)
+    AA.contPitch = 0
+    AA.lastTick = 0
 
     function AA.resolve()
         local RS = game:GetService("ReplicatedStorage")
@@ -7063,55 +7056,241 @@ do
     end
 
     function AA.rot()
+        -- HARION remote — Yaw Angle SIEMPRE aplica (grados del slider)
         local cur = (AA.cam and AA.cam.Rotation) or Vector2.zero
-        local pitch, yaw = cur.X or 0, cur.Y or 0
-        local pm = string.lower(tostring(config.AAPitchMode or "disabled"))
-        local ym = string.lower(tostring(config.AAYawMode or "disabled"))
-        if pm == "static" then pm = "zero" end
-        if pm == "pitchdown" then pm = "down" end
-        if ym == "jitter" then ym = "random" end
-        if ym == "static" then ym = "backwards" end
-        if pm == "up" then pitch = math.rad(-89)
-        elseif pm == "down" then pitch = math.rad(179)
-        elseif pm == "zero" then pitch = 0
-        elseif pm == "random" then pitch = math.rad(math.random(-89, 179)) end
-        if ym == "backwards" then yaw = yaw + math.rad(180)
-        elseif ym == "spin" then yaw = math.rad((tick() * 720) % 360)
-        elseif ym == "random" then yaw = math.rad(math.random(0, 359)) end
+        local camPitch, camYaw = cur.X or 0, cur.Y or 0
+        local pm = string.lower(tostring(config.AAPitchMode or "down"))
+        local ym = string.lower(tostring(config.AAYawMode or "jitter"))
+        local pitchOff = tonumber(config.AAPitchOffset) or 250
+        local pitchAng = tonumber(config.AAPitchAngle) or 0
+        local yawAngDeg = tonumber(config.AAYawAngle) or 180
+        local yawAng = math.rad(yawAngDeg)  -- SIEMPRE en radianes desde el slider
+        local jAmt = tonumber(config.AAJitterAmount) or yawAngDeg
+        local spinRate = tonumber(config.AASpinRate) or 720
+        local now = tick()
+        local dt = math.clamp(now - (AA.lastTick or now), 0, 0.05)
+        AA.lastTick = now
+
+        -- ===== PITCH =====
+        local pitch = camPitch
+        if pm == "up" then
+            pitch = math.rad(-89)
+        elseif pm == "down" then
+            pitch = math.rad(pitchOff > 0 and pitchOff or 179)
+        elseif pm == "zero" then
+            pitch = 0
+        elseif pm == "random" then
+            pitch = math.rad(math.random(-89, 179))
+        elseif pm == "strong" then
+            pitch = (now % 0.2 < 0.1) and math.rad(pitchOff > 0 and pitchOff or 179) or math.rad(-89)
+        elseif pm == "disabled" or pm == "off" then
+            pitch = camPitch
+        end
+        if pitchAng ~= 0 then
+            pitch = pitch + math.rad(pitchAng)
+        end
+        if config.AntiAimUnderground then
+            pitch = math.rad(pitchOff > 0 and pitchOff or 179)
+        end
+
+        -- ===== YAW: el slider Yaw Angle SIEMPRE manda =====
+        -- Base = yaw de camara + offset del slider (yawAngDeg)
+        -- Los modos modifican ENCIMA de ese offset
+        local yaw
+        if ym == "backwards" then
+            -- mira atras = cam + yawAngle (default 180 = espalda)
+            yaw = camYaw + yawAng
+        elseif ym == "spin" then
+            AA.contYaw = (AA.contYaw or 0) + math.rad(spinRate) * dt
+            yaw = AA.contYaw + yawAng  -- spin + offset del slider
+        elseif ym == "random" then
+            if now >= (AA.nextJitter or 0) then
+                AA.jitterYaw = math.rad(math.random(0, 359))
+                AA.nextJitter = now + 0.05
+            end
+            yaw = (AA.jitterYaw or 0) + yawAng
+        elseif ym == "jitter" then
+            if now >= (AA.nextJitter or 0) then
+                AA.jitterSide = -(AA.jitterSide or 1)
+                local amp = math.rad(math.max(jAmt, 1) * (0.55 + math.random() * 0.45))
+                AA.jitterYaw = AA.jitterSide * amp
+                AA.nextJitter = now + 0.04 + math.random() * 0.05
+            end
+            -- centro = cam + yawAngle, oscila con jitter
+            yaw = camYaw + yawAng + (AA.jitterYaw or 0)
+        elseif ym == "side" then
+            if now >= (AA.nextJitter or 0) then
+                AA.jitterSide = -(AA.jitterSide or 1)
+                AA.nextJitter = now + 0.06
+            end
+            yaw = camYaw + math.rad((AA.jitterSide or 1) * 90) + yawAng
+        elseif ym == "opposite" then
+            yaw = camYaw + yawAng + math.rad((math.random() * 2 - 1) * 12)
+        elseif ym == "strong" then
+            AA.contYaw = (AA.contYaw or 0) + math.rad(spinRate * 1.2) * dt
+            local phase = (now * 8) % 3
+            if phase < 1 then
+                yaw = AA.contYaw + yawAng
+            elseif phase < 2 then
+                yaw = camYaw + yawAng + math.rad((math.random() * 2 - 1) * 40)
+            else
+                yaw = math.rad(math.random(0, 359)) + yawAng
+            end
+        else
+            -- disabled: igual aplica el slider para que "haga algo"
+            yaw = camYaw + yawAng
+        end
+
+        AA._lastPitch = pitch
+        AA._lastYaw = yaw
+        AA.contPitch = pitch
+        AA.contYaw = yaw
         return Vector2.new(pitch, yaw)
     end
 
-    function AA.stopTask()
-        if AA.task then pcall(task.cancel, AA.task) AA.task = nil end
-        local pose = getgenv()._ShakoAntiAimPoseConfig
-        if pose then pose.enabled = false end
-        if _G.AntiAimPoseConfig then _G.AntiAimPoseConfig.enabled = false end
+    -- Partes R15 que el AA debe orientar (mismo pitch/yaw que el remote)
+    AA.BODY_PARTS = {
+        "Head", "UpperTorso", "LowerTorso",
+        "LeftUpperArm", "LeftLowerArm", "LeftHand",
+        "RightUpperArm", "RightLowerArm", "RightHand",
+    }
+    AA._motorOrig = AA._motorOrig or {}
+
+    function AA.cacheMotors(char)
+        if not char then return end
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+                local p1 = d.Part1.Name
+                for _, want in ipairs(AA.BODY_PARTS) do
+                    if p1 == want or d.Name == "Neck" or d.Name == "Waist"
+                        or d.Name:find("Shoulder") or d.Name:find("Elbow")
+                        or d.Name:find("Wrist") or d.Name == "Root" then
+                        if not AA._motorOrig[d] then
+                            AA._motorOrig[d] = d.C0
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    function AA.applyBody(rot)
+        local char = LocalPlayer.Character
+        if not char or not rot then return end
+        AA.cacheMotors(char)
+
+        local pitch = rot.X or AA._lastPitch or 0
+        local yaw = rot.Y or AA._lastYaw or 0
+
+        -- Construir rotación sin pasar por el gimbal lock de ±180:
+        -- CFrame.Angles en YXZ con componentes acotados por joint, no re-wrap
+        local function cfPitchYaw(pScale, yScale)
+            local p = pitch * pScale
+            local y = yaw * yScale
+            -- fromEulerAnglesYXZ evita algunos flips de Angles clásico
+            return CFrame.fromEulerAnglesYXZ(p, y, 0)
+        end
+
+        for motor, base in pairs(AA._motorOrig) do
+            if motor and motor.Parent and base then
+                local n = string.lower(motor.Name)
+                local p1 = motor.Part1 and motor.Part1.Name or ""
+                pcall(function()
+                    if n == "neck" or p1 == "Head" then
+                        motor.C0 = base * cfPitchYaw(0.85, 0.35)
+                    elseif n == "waist" or p1 == "UpperTorso" then
+                        motor.C0 = base * CFrame.fromEulerAnglesYXZ(pitch * 0.55, yaw * 0.25, pitch * 0.12)
+                    elseif n == "root" or p1 == "LowerTorso" then
+                        motor.C0 = base * cfPitchYaw(0.35, 0.2)
+                    elseif n:find("shoulder") or p1:find("UpperArm") then
+                        local s = (n:find("left") or p1:find("Left")) and -1 or 1
+                        motor.C0 = base * CFrame.fromEulerAnglesYXZ(pitch * 0.4, yaw * 0.15 * s, pitch * 0.45 * s)
+                    elseif n:find("elbow") or p1:find("LowerArm") then
+                        motor.C0 = base * CFrame.fromEulerAnglesYXZ(math.abs(pitch) * 0.25, 0, 0)
+                    elseif n:find("wrist") or p1:find("Hand") then
+                        motor.C0 = base * cfPitchYaw(0.1, 0.05)
+                    end
+                end)
+            end
+        end
+    end
+
+    function AA.restoreBody()
+        for motor, base in pairs(AA._motorOrig) do
+            pcall(function()
+                if motor and motor.Parent and base then motor.C0 = base end
+            end)
+        end
+        AA._motorOrig = {}
     end
 
     function AA.startTask()
         AA.stopTask()
-        if not AA.resolve() then return false end
         local pose = {
             enabled = true,
-            pitch = string.lower(tostring(config.AAPitchMode or "disabled")),
-            yaw = string.lower(tostring(config.AAYawMode or "disabled")),
+            pitch = string.lower(tostring(config.AAPitchMode or "down")),
+            yaw = string.lower(tostring(config.AAYawMode or "jitter")),
             underground = config.AntiAimUnderground == true,
         }
         getgenv()._ShakoAntiAimPoseConfig = pose
         _G.AntiAimPoseConfig = pose
+
+        -- Loop SIEMPRE: reintenta resolve cada frame (lobby -> partida)
         AA.task = task.spawn(function()
-            while config.AntiAimEnabled and pose.enabled do
-                local ym = string.lower(tostring(config.AAYawMode or "disabled"))
-                local burst = (ym == "random" or ym == "jitter") and 3 or 1
-                for _ = 1, burst do
-                    if not pcall(function()
-                        AA.remote:FireServer(AA.util:EncodeCameraRotation(AA.rot()), nil)
-                    end) then break end
+            local lastOk = false
+            while config.AntiAimEnabled do
+                pose.enabled = true
+                pose.pitch = string.lower(tostring(config.AAPitchMode or "down"))
+                pose.yaw = string.lower(tostring(config.AAYawMode or "jitter"))
+                pose.underground = config.AntiAimUnderground == true
+
+                if not (AA.util and AA.cam and AA.remote) then
+                    AA.resolve()
+                end
+
+                if AA.util and AA.remote then
+                    local ym = string.lower(tostring(config.AAYawMode or "jitter"))
+                    local burst = 1
+                    if ym == "random" then burst = 3
+                    elseif ym == "jitter" then burst = 2
+                    elseif ym == "strong" or config.AAStrongMode then
+                        burst = math.clamp(tonumber(config.AAPacketBurst) or 5, 2, 10)
+                    end
+
+                    local rot = AA.rot()
+                    -- SOLO remote: los DEMAS ven el AA. Tu camara/body NO se tocan.
+                    for _ = 1, burst do
+                        local ok = pcall(function()
+                            AA.remote:FireServer(AA.util:EncodeCameraRotation(rot), nil)
+                        end)
+                        if not ok then break end
+                    end
+                    if not lastOk then
+                        lastOk = true
+                        print("[shako] AntiAim HARION remote OK")
+                    end
+                else
+                    lastOk = false
                 end
                 RunService.Heartbeat:Wait()
             end
+            pose.enabled = false
         end)
         return true
+    end
+
+    function AA.stopTask()
+        if AA.task then
+            pcall(task.cancel, AA.task)
+            AA.task = nil
+        end
+        if getgenv()._ShakoAntiAimPoseConfig then
+            getgenv()._ShakoAntiAimPoseConfig.enabled = false
+        end
+        if _G.AntiAimPoseConfig then
+            _G.AntiAimPoseConfig.enabled = false
+        end
+        pcall(AA.restoreBody)
     end
 
     StartAntiAim = function()
@@ -7119,14 +7298,28 @@ do
         pcall(function() RunService:UnbindFromRenderStep("__as_aa_client") end)
         AA.stopTask()
         config.AntiAimEnabled = true
+        config.AAHideLocal = true -- NUNCA muevas mi camara local
+        if not config.AAPitchMode or config.AAPitchMode == "disabled" then
+            config.AAPitchMode = "down"
+        end
+        if not config.AAYawMode or config.AAYawMode == "disabled" then
+            config.AAYawMode = "jitter"
+        end
+        config.AAPitchOffset = tonumber(config.AAPitchOffset) or 250
+        config.AAYawAngle = tonumber(config.AAYawAngle) or 180
         local ok = AA.startTask()
+        pcall(AA.resolve)
         if Connections.AntiAimChar then
             pcall(function() Connections.AntiAimChar:Disconnect() end)
             Connections.AntiAimChar = nil
         end
         Connections.AntiAimChar = LocalPlayer.CharacterAdded:Connect(function()
             task.wait(0.4)
-            if config.AntiAimEnabled then AA.resolve() AA.startTask() end
+            if config.AntiAimEnabled then
+                AA._motorOrig = {}
+                AA.resolve()
+                AA.startTask()
+            end
         end)
         if config.AAHideLocal then
             RunService:BindToRenderStep("__as_aa_client", Enum.RenderPriority.Last.Value, function()
@@ -7142,7 +7335,7 @@ do
             end)
         end
         if not getgenv()._ShakoQuiet then
-            Notify("AntiAim", ok and ("HARION ON · " .. tostring(config.AAPitchMode) .. "/" .. tostring(config.AAYawMode))
+            Notify("AntiAim", ok and ("HARION+ · " .. tostring(config.AAPitchMode) .. "/" .. tostring(config.AAYawMode))
                 or "HARION deps fail — activa en partida")
         end
     end
@@ -9608,7 +9801,8 @@ StopESP = function()
 end
 
 function pushBulletTracer(fromPos, toPos)
-    if not config.BulletTracerEnabled then return end
+    if not config.BulletTracerEnabled then return end -- legacy off; usa EliTracers
+if true then return end -- disable old tracers
     if not toPos then return end
     -- estilos avanzados
     local TracerStyles = {
@@ -13719,32 +13913,13 @@ function StopWeaponWireframe()
 end
 
 function StartStretchedRes()
-    config.StretchedRes = true
+    -- legacy: redirige a Elisium stretch
+    config.StretchedRes = false
+    config.EliStretch = true
     SafeDisconnect("StretchedRes")
-    local cam = workspace.CurrentCamera
-    if cam and not S.stretchBaseFOV then
-        S.stretchBaseFOV = cam.FieldOfView
-    end
-    Connections.StretchedRes = RunService.RenderStepped:Connect(function()
-        if not config.StretchedRes then return end
-        local c = workspace.CurrentCamera
-        if not c then return end
-        if not S.stretchBaseFOV then
-            S.stretchBaseFOV = c.FieldOfView
-        end
-        local scale = tonumber(config.StretchedScale) or 0.81
-        scale = math.clamp(scale, 0.40, 1.00)
-        -- mas bajo scale = FOV mas ancho (look stretched visual)
-        local base = S.stretchBaseFOV or 70
-        local fov = math.clamp(base / scale, 50, 120)
-        pcall(function()
-            c.FieldOfView = fov
-        end)
-    end)
-    if not getgenv()._ShakoQuiet then
-        Notify("Stretch", "VISUAL FOV · scale " .. tostring(tonumber(config.StretchedScale) or 0.81))
-    end
+    return
 end
+
 
 function StopStretchedRes()
     config.StretchedRes = false
@@ -13833,14 +14008,80 @@ function StopThirdPerson()
     end
     if S.tpConn then pcall(function() S.tpConn:Disconnect() end) S.tpConn = nil end
     setHarionPOV("FirstPerson")
+    -- NO forzar LockCenter aquí: deja que el juego decida (evita cursor pegado al centro)
     pcall(function()
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        UserInputService.MouseIconEnabled = true
     end)
     if not getgenv()._ShakoQuiet and not (getgenv()._ShakoBootAt and tick() - getgenv()._ShakoBootAt < 8) then
         Notify("Camera", "Third Person OFF (1st person)")
     end
 end
 end)()
+
+
+-- ==================== MOUSE UNLOCK (fix cursor stuck center) ====================
+getgenv()._ShakoMouseFix = getgenv()._ShakoMouseFix or { conn = nil }
+
+function ShakoUnlockMouse()
+    pcall(function()
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end)
+end
+
+function ShakoFixMouseLoop()
+    local S = getgenv()._ShakoMouseFix
+    if S.conn then pcall(function() S.conn:Disconnect() end) S.conn = nil end
+    S.conn = RunService.RenderStepped:Connect(function()
+        local menuOpen = false
+        pcall(function()
+            if Library and Library.Unloaded then return end
+            -- Linoria/UE: Toggled o IsOpen / MenuOpen
+            if Library.Toggled == true or Library.MenuOpen == true then
+                menuOpen = true
+            elseif type(Library.IsOpen) == "function" then
+                menuOpen = Library:IsOpen() == true
+            elseif Library.Open == true then
+                menuOpen = true
+            end
+            -- Window holder visible
+            if not menuOpen and Window and Window.Holder then
+                menuOpen = Window.Holder.Visible == true
+            end
+        end)
+        if menuOpen then
+            pcall(function()
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                UserInputService.MouseIconEnabled = true
+                if Library then
+                    Library.ShowCustomCursor = true
+                end
+            end)
+            return
+        end
+        if (config.ThirdPerson or config.ThirdPersonEnabled) and config.ThirdPersonUnlockMouse then
+            pcall(function()
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                UserInputService.MouseIconEnabled = true
+            end)
+        end
+    end)
+end
+
+pcall(ShakoFixMouseLoop)
+
+-- Keybind opcional: RightAlt desbloquea mouse
+pcall(function()
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.RightAlt then
+            ShakoUnlockMouse()
+            if not getgenv()._ShakoQuiet then
+                pcall(function() Notify("Mouse", "Unlock (RightAlt)") end)
+            end
+        end
+    end)
+end)
 
 function StopWeather()
     config.WeatherEnabled = false
@@ -15897,6 +16138,16 @@ RageBox:AddToggle("RagebotEnabled", {
         if v then StartRagebot() else StopRagebot() end
     end
 })
+RageBox:AddToggle("RageDesync", {
+    Text = "Rage Desync (no ves el TP)", Default = true,
+    Callback = function(v)
+        config.RageDesync = v
+        if config.RagebotEnabled then
+            StartRagebot()
+        end
+    end
+})
+
 RageBox:AddToggle("BodyTwist", {
     Text = "Body Twist (pose torcida)", Default = false,
     Callback = function(v)
@@ -16327,17 +16578,7 @@ CollectBox:AddLabel("FFA: agarra packs de vida/balas")
 
 CamBox = Tabs.Misc:AddRightGroupbox("camera / vm")
 
-CamBox:AddToggle("StretchedResToggle", {
-    Text = "Stretched Res", Default = false,
-    Callback = function(v)
-        if v then StartStretchedRes() else StopStretchedRes() end
-    end
-})
-CamBox:AddSlider("StretchedScale", {
-    Text = "Stretch Scale", Default = 0.81, Min = 0.40, Max = 1.00, Rounding = 2,
-    Callback = function(v) config.StretchedScale = v end
-})
-
+-- Stretched Res viejo eliminado → usa elisium stretch / fov
 CamBox:AddToggle("ThirdPersonHarion", {
     Text = "Third Person", Default = false,
     Callback = function(v)
@@ -16953,34 +17194,7 @@ ESPBox:AddToggle("ESPFilledBox", {
     Text = "Box Filled", Default = false,
     Callback = function(v) config.ESPFilledBox = v end
 })
-ESPBox:AddToggle("BulletTracerEnabled", {
-    Text = "Bullet Tracers", Default = false,
-    Callback = function(v) config.BulletTracerEnabled = v end
-})
-addColor3(ESPBox, "BulletTracerColorPick", "Bullet Tracer Color",
-    function() return config.BulletTracerColorCustom or Color3.fromRGB(0,220,255) end,
-    function(c) config.BulletTracerColorCustom = c; config.BulletTracerColor = "Custom" end, function() end)
-ESPBox:AddDropdown("BulletTracerColor", {
-    Text = "Bullet Tracer Color",
-    Values = {"Cyan", "White", "Red", "Green", "Yellow", "Magenta", "Orange", "Blue"},
-    Default = 1,
-    Callback = function(v) config.BulletTracerColor = v end
-})
-ESPBox:AddSlider("BulletTracerDuration", {
-    Text = "Tracer Duration", Default = 1.2, Min = 0.2, Max = 5, Rounding = 1,
-    Callback = function(v) config.BulletTracerDuration = v end
-})
-ESPBox:AddDropdown("BulletTracerStyle", {
-    Text = "Tracer style (Grief)",
-    Values = {"Line", "Neon", "Laser", "Smoke", "Lightning"},
-    Default = 1,
-    Callback = function(v) config.BulletTracerStyle = v end
-})
-ESPBox:AddSlider("BulletTracerGlow", {
-    Text = "Tracer glow", Default = 0.45, Min = 0, Max = 1, Rounding = 2,
-    Callback = function(v) config.BulletTracerGlow = v end
-})
-
+-- Bullet tracers viejos eliminados → usa elisium tracers
 ESPBox:AddSlider("ESPMaxDist", {
     Text = "Max Dist", Default = 600, Min = 50, Max = 2000, Rounding = 0,
     Callback = function(v) config.ESPMaxDist = v end
@@ -17240,65 +17454,6 @@ CrossBox:AddSlider("CrosshairTextOffsetY", {
     Callback = function(v) config.CrosshairTextOffsetY = v end
 })
 CrossBox:AddLabel("Alinea con la mira real de Rivals")
-
-HitFXBox = Tabs.Visual:AddLeftGroupbox("hit feedback")
-HitFXBox:AddToggle("FXHitMarker", {
-    Text = "Hit marker", Default = false,
-    Callback = function(v) config.FXHitMarker = v end
-})
-addColor3(HitFXBox, "HitMarkerColorPick", "Hit Marker Color",
-    function() return config.FXHitMarkerColor or Color3.fromRGB(255,255,255) end,
-    function(c) config.FXHitMarkerColor = c end, function() end)
-addColor3(HitFXBox, "HitMarkerCritPick", "Hit Crit Color",
-    function() return config.FXHitMarkerCritColor or Color3.fromRGB(255,194,75) end,
-    function(c) config.FXHitMarkerCritColor = c end, function() end)
-
-HitFXBox:AddDropdown("FXHitMarkerStyle", {
-    Text = "Marker style",
-    Values = {"X", "Plus", "Circle"},
-    Default = 1,
-    Callback = function(v) config.FXHitMarkerStyle = v end
-})
-HitFXBox:AddSlider("FXHitMarkerGap", {
-    Text = "Marker gap", Default = 5, Min = 2, Max = 20, Rounding = 0,
-    Callback = function(v) config.FXHitMarkerGap = v end
-})
-HitFXBox:AddSlider("FXHitMarkerLen", {
-    Text = "Marker length", Default = 8, Min = 2, Max = 24, Rounding = 0,
-    Callback = function(v) config.FXHitMarkerLen = v end
-})
-HitFXBox:AddSlider("FXHitMarkerThickness", {
-    Text = "Marker thickness", Default = 2, Min = 1, Max = 6, Rounding = 0,
-    Callback = function(v) config.FXHitMarkerThickness = v end
-})
-HitFXBox:AddToggle("FXBeamTracer", {
-    Text = "Bullet tracer", Default = false,
-    Callback = function(v) config.FXBeamTracer = v end
-})
-HitFXBox:AddDropdown("FXBeamStyle", {
-    Text = "Style",
-    Values = {"Line", "Glow", "Prism", "Arc"},
-    Default = 1,
-    Callback = function(v) config.FXBeamStyle = v end
-})
-HitFXBox:AddSlider("FXBeamDuration", {
-    Text = "Tracer duration", Default = 0.35, Min = 0.1, Max = 2, Rounding = 2,
-    Callback = function(v) config.FXBeamDuration = v end
-})
-HitFXBox:AddSlider("FXBeamThickness", {
-    Text = "Tracer thickness", Default = 0.12, Min = 0.04, Max = 0.5, Rounding = 2,
-    Callback = function(v) config.FXBeamThickness = v end
-})
-HitFXBox:AddToggle("FXDamageNumbers", {
-    Text = "Damage numbers", Default = false,
-    Callback = function(v) config.FXDamageNumbers = v end
-})
-HitFXBox:AddToggle("FXKillBanner", {
-    Text = "Kill banner", Default = false,
-    Callback = function(v) config.FXKillBanner = v end
-})
-HitFXBox:AddLabel("LuaHook-style · white hit / gold crit / red lethal")
-
 
 -- ==================== AMBIENT SOUNDS (relajantes) ====================
 -- IDs públicos que suelen cargar (si uno falla, se prueba el fallback)
@@ -17894,7 +18049,7 @@ DefBox:AddSlider("FakePeekDist", {
 })
 DefBox:AddLabel("Combo + Orbit + Height = mejor vs ragers")
 
-AABox = Tabs.Character:AddRightGroupbox("anti-aim (HARION)")
+AABox = Tabs.Character:AddRightGroupbox("Anti Aim")
 AABox:AddToggle("AntiAimToggle", {
     Text = "Enable (HARION remote)", Default = false,
     Callback = function(v)
@@ -17904,56 +18059,108 @@ AABox:AddToggle("AntiAimToggle", {
 })
 AABox:AddDropdown("AAPitchMode", {
     Text = "Pitch",
-    Values = {"disabled", "up", "down", "zero", "random"},
-    Default = 3, -- down
+    Values = {"disabled", "up", "down", "zero", "random", "strong"},
+    Default = "down",
     Callback = function(v)
         config.AAPitchMode = v
-        if getgenv()._ShakoAntiAimPoseConfig then
-            getgenv()._ShakoAntiAimPoseConfig.pitch = v
-        end
+        if getgenv()._ShakoAntiAimPoseConfig then getgenv()._ShakoAntiAimPoseConfig.pitch = v end
         if _G.AntiAimPoseConfig then _G.AntiAimPoseConfig.pitch = v end
     end
 })
 AABox:AddDropdown("AAYawMode", {
     Text = "Yaw",
-    Values = {"disabled", "backwards", "spin", "random"},
-    Default = 2, -- backwards
+    Values = {"disabled", "backwards", "spin", "random", "jitter", "side", "opposite", "strong"},
+    Default = 5, -- jitter
     Callback = function(v)
         config.AAYawMode = v
-        if getgenv()._ShakoAntiAimPoseConfig then
-            getgenv()._ShakoAntiAimPoseConfig.yaw = v
-        end
+        if getgenv()._ShakoAntiAimPoseConfig then getgenv()._ShakoAntiAimPoseConfig.yaw = v end
         if _G.AntiAimPoseConfig then _G.AntiAimPoseConfig.yaw = v end
     end
+})
+AABox:AddSlider("AAPitchOffset", {
+    Text = "Pitch Offset", Default = 250, Min = 0, Max = 360, Rounding = 0,
+    Callback = function(v) config.AAPitchOffset = v end
+})
+AABox:AddSlider("AAPitchAngle", {
+    Text = "Pitch Angle (°)", Default = 0, Min = -180, Max = 180, Rounding = 0,
+    Callback = function(v) config.AAPitchAngle = v end
+})
+AABox:AddSlider("AAYawAngle", {
+    Text = "Yaw Angle (°)", Default = 180, Min = 0, Max = 360, Rounding = 0,
+    Callback = function(v)
+        config.AAYawAngle = tonumber(v) or 180
+        if getgenv()._ShakoAntiAimPoseConfig then
+            getgenv()._ShakoAntiAimPoseConfig.yawAngle = config.AAYawAngle
+        end
+        -- jitter amount sigue el yaw angle si no se tocó aparte
+        if not config.AAJitterAmount or config.AAJitterAmount == 90 then
+            config.AAJitterAmount = v
+        end
+    end
+})
+AABox:AddSlider("AAJitterAmount", {
+    Text = "Jitter Amount (°)", Default = 90, Min = 15, Max = 180, Rounding = 0,
+    Callback = function(v) config.AAJitterAmount = v end
+})
+AABox:AddSlider("AASpinRate", {
+    Text = "Spin Rate", Default = 720, Min = 90, Max = 2000, Rounding = 0,
+    Callback = function(v) config.AASpinRate = v end
+})
+AABox:AddToggle("AAStrongMode", {
+    Text = "Strong Mode (multi-packet)", Default = false,
+    Callback = function(v)
+        config.AAStrongMode = v
+        if config.AntiAimEnabled then StartAntiAim() end
+    end
+})
+AABox:AddSlider("AAPacketBurst", {
+    Text = "Strong Packets / tick", Default = 5, Min = 2, Max = 10, Rounding = 0,
+    Callback = function(v) config.AAPacketBurst = v end
 })
 AABox:AddToggle("AntiAimUnderground", {
     Text = "Underground flag", Default = false,
     Callback = function(v)
         config.AntiAimUnderground = v
-        if getgenv()._ShakoAntiAimPoseConfig then
-            getgenv()._ShakoAntiAimPoseConfig.underground = v
-        end
+        if getgenv()._ShakoAntiAimPoseConfig then getgenv()._ShakoAntiAimPoseConfig.underground = v end
         if _G.AntiAimPoseConfig then _G.AntiAimPoseConfig.underground = v end
     end
 })
 AABox:AddToggle("AAHideLocal", {
-    Text = "Hide Local (camara normal para ti)", Default = false,
+    Text = "Hide Local (camara normal para ti)", Default = true,
     Callback = function(v)
         config.AAHideLocal = v
         if config.AntiAimEnabled then StartAntiAim() end
     end
 })
-AABox:AddLabel("HARION: UpdateCameraRotation cada frame")
-AABox:AddLabel("Pitch down + Yaw backwards = tipico HVH")
+AABox:AddLabel("jitter = backwards + flip · strong = max AA")
 AABox:AddButton({
-    Text = "Preset HARION Rager",
+    Text = "Preset Jitter AA",
     Func = function()
         config.AAPitchMode = "down"
-        config.AAYawMode = "backwards"
-        config.AntiAimUnderground = false
+        config.AAYawMode = "jitter"
+        config.AAPitchOffset = 250
+        config.AAPitchAngle = 0
+        config.AAYawAngle = 180
+        config.AAJitterAmount = 180
+        config.AAStrongMode = false
+        config.AAHideLocal = true -- TU camara normal; solo otros ven el AA
         config.AntiAimEnabled = true
         StartAntiAim()
-        Notify("AntiAim", "HARION · pitch down / yaw backwards")
+        Notify("AntiAim", "Jitter · down + backwards flip")
+    end
+})
+AABox:AddButton({
+    Text = "Preset STRONG AA",
+    Func = function()
+        config.AAPitchMode = "strong"
+        config.AAYawMode = "strong"
+        config.AAStrongMode = true
+        config.AAPacketBurst = 6
+        config.AAJitterAmount = 120
+        config.AAHideLocal = true
+        config.AntiAimEnabled = true
+        StartAntiAim()
+        Notify("AntiAim", "STRONG · multi-packet Harion")
     end
 })
 AABox:AddButton({
@@ -17961,9 +18168,10 @@ AABox:AddButton({
     Func = function()
         config.AAPitchMode = "down"
         config.AAYawMode = "spin"
+        config.AASpinRate = 720
         config.AntiAimEnabled = true
         StartAntiAim()
-        Notify("AntiAim", "HARION · pitch down / yaw spin")
+        Notify("AntiAim", "Spin · down")
     end
 })
 
@@ -18034,13 +18242,49 @@ MoveBox:AddToggle("SlideBoost", {
     Callback = function(v)
         config.SlideBoostEnabled = v
         if v then StartSlideBoostLoop() else StopSlideBoostLoop() end
-        Notify("Slide", v and ("ON x" .. tostring(config.SlideBoostMult)) or "OFF")
+        Notify("Slide", v and ("ON · speed " .. tostring(config.SlideBoostSpeed or 60)) or "OFF")
     end
 })
-MoveBox:AddSlider("SlideBoostMult", {
-    Text = "Slide Boost Mult", Default = 2.5, Min = 1.2, Max = 12, Rounding = 1,
-    Callback = function(v) config.SlideBoostMult = v end
+MoveBox:AddSlider("SlideBoostSpeed", {
+    Text = "Slide Speed", Default = 60, Min = 1, Max = 150, Rounding = 0,
+    Callback = function(v) config.SlideBoostSpeed = v end
 })
+
+-- Disable animations (Elisium) — en Visuals si existe, sino aquí
+pcall(function()
+    local box = MoveBox
+    if Tabs and Tabs.Visuals and Tabs.Visuals.AddLeftGroupbox then
+        box = Tabs.Visuals:AddLeftGroupbox("disable animation")
+    elseif Tabs and Tabs.World and Tabs.World.AddLeftGroupbox then
+        box = Tabs.World:AddLeftGroupbox("disable animation")
+    end
+    box:AddToggle("DisableAnimsEnable", {
+        Text = "Disable Anims", Default = false,
+        Callback = function(v)
+            config.DisableAnimsEnabled = v
+            if v then StartDisableAnims() else StopDisableAnims() end
+        end
+    })
+    box:AddDropdown("DisableAnimsSelect", {
+        Text = "Types",
+        Values = {"bobbing", "landing", "sway", "equip", "inspect", "sliding", "shoot", "impulse", "aim", "sprint", "attack", "charge", "reload", "throw"},
+        Default = {},
+        Multi = true,
+        Callback = function(v)
+            local converted = {}
+            if type(v) == "table" then
+                for k, val in pairs(v) do
+                    if type(k) == "number" then
+                        table.insert(converted, tostring(val))
+                    elseif val == true then
+                        table.insert(converted, tostring(k))
+                    end
+                end
+            end
+            config.DisableAnimsSelect = converted
+        end
+    })
+end)
 MoveBox:AddSlider("SlideBaseSpeed", {
     Text = "Slide Base Speed", Default = 45, Min = 20, Max = 200, Rounding = 0,
     Callback = function(v) config.SlideBaseSpeed = v end
@@ -18231,6 +18475,226 @@ CfgBox:AddLabel("Guarda toggles + spoof IDs + avatar")
 
 
 RefreshCfg()
+
+-- ELISIUM visuals UI
+pcall(function()
+    local visTab = Tabs.Visuals or Tabs.World or Tabs.Misc
+    if not visTab then return end
+    local EliBox = visTab:AddLeftGroupbox("elisium stretch / fov")
+    EliBox:AddToggle("EliStretch", {
+        Text = "Stretched Resolution (Elisium)", Default = false,
+        Callback = function(v) config.EliStretch = v end
+    })
+    EliBox:AddSlider("EliStretchAmount", {
+        Text = "Stretch Amount", Default = 0.20, Min = 0.05, Max = 1, Rounding = 2,
+        Callback = function(v) config.EliStretchAmount = v end
+    })
+    EliBox:AddToggle("EliFOV", {
+        Text = "FOV Changer", Default = false,
+        Callback = function(v) config.EliFOV = v end
+    })
+    EliBox:AddSlider("EliFOVValue", {
+        Text = "FOV", Default = 80, Min = 40, Max = 120, Rounding = 0,
+        Callback = function(v) config.EliFOVValue = v end
+    })
+
+    local TrBox = visTab:AddRightGroupbox("elisium tracers")
+    TrBox:AddToggle("EliTracers", {
+        Text = "Bullet Tracers (Elisium)", Default = false,
+        Callback = function(v) config.EliTracers = v end
+    })
+    TrBox:AddDropdown("EliTracerTexture", {
+        Text = "Texture",
+        Values = {"lightning","beam","heartrate","chain","glitch","swirl","neon","laser1","line1","none (solid)"},
+        Default = 1,
+        Callback = function(v) config.EliTracerTexture = v end
+    })
+    TrBox:AddSlider("EliTracerLife", {
+        Text = "Lifetime", Default = 1.5, Min = 0.2, Max = 5, Rounding = 1,
+        Callback = function(v) config.EliTracerLife = v end
+    })
+    TrBox:AddSlider("EliTracerGlow", {
+        Text = "Glow", Default = 4, Min = 0, Max = 12, Rounding = 1,
+        Callback = function(v) config.EliTracerGlow = v end
+    })
+    TrBox:AddSlider("EliTracerWidth0", {
+        Text = "Width Start", Default = 0.35, Min = 0.05, Max = 2, Rounding = 2,
+        Callback = function(v) config.EliTracerWidth0 = v end
+    })
+    TrBox:AddSlider("EliTracerWidth1", {
+        Text = "Width End", Default = 0.15, Min = 0.02, Max = 2, Rounding = 2,
+        Callback = function(v) config.EliTracerWidth1 = v end
+    })
+    TrBox:AddSlider("EliTracerSpeed", {
+        Text = "Texture Speed", Default = 3, Min = 0, Max = 20, Rounding = 1,
+        Callback = function(v) config.EliTracerSpeed = v end
+    })
+    TrBox:AddToggle("EliTracerThroughWalls", {
+        Text = "Through Walls (drawing)", Default = false,
+        Callback = function(v) config.EliTracerThroughWalls = v end
+    })
+
+    local HsBox = visTab:AddLeftGroupbox("elisium hitsounds")
+    HsBox:AddToggle("EliHitSound", {
+        Text = "Elisium Hit Sounds", Default = false,
+        Callback = function(v)
+            config.EliHitSound = v
+            if v then config.HitSoundEnabled = false end -- replace old
+        end
+    })
+    HsBox:AddDropdown("EliHitSoundName", {
+        Text = "Sound",
+        Values = {"windows xp","minecraft bow","neverlose","steve","among us","bonk","rust","fatality","hitmarker","csgo","minecraft success bow hit"},
+        Default = 7,
+        Callback = function(v) config.EliHitSoundName = v end
+    })
+    HsBox:AddSlider("EliHitVolume", {
+        Text = "Volume", Default = 3, Min = 0.1, Max = 10, Rounding = 1,
+        Callback = function(v) config.EliHitVolume = v end
+    })
+    HsBox:AddSlider("EliHitPitch", {
+        Text = "Pitch", Default = 1, Min = 0.1, Max = 3, Rounding = 1,
+        Callback = function(v) config.EliHitPitch = v end
+    })
+    HsBox:AddToggle("EliHitRemoveDefault", {
+        Text = "Remove Default Hitsound", Default = true,
+        Callback = function(v) config.EliHitRemoveDefault = v end
+    })
+    HsBox:AddButton({
+        Text = "Test Hit Sound",
+        Func = function()
+            if getgenv()._ShakoEli and getgenv()._ShakoEli.playHit then
+                getgenv()._ShakoEli.playHit()
+            end
+        end
+    })
+
+    local DnBox = visTab:AddRightGroupbox("elisium damage numbers")
+    DnBox:AddToggle("EliDmgNum", {
+        Text = "Damage Numbers (quita los del juego)", Default = false,
+        Callback = function(v)
+            config.EliDmgNum = v
+            config.EliDmgRemoveIngame = v and true or false
+        end
+    })
+    DnBox:AddToggle("EliDmgGradient", {
+        Text = "Gradient", Default = true,
+        Callback = function(v) config.EliDmgGradient = v end
+    })
+    pcall(function()
+        if addColor3 then
+            addColor3(DnBox, "EliDmgColor1", "Color 1",
+                function() return config.EliDmgColor1 or Color3.fromRGB(255, 80, 80) end,
+                function(c) config.EliDmgColor1 = c end)
+            addColor3(DnBox, "EliDmgColor2", "Color 2 (gradient)",
+                function() return config.EliDmgColor2 or Color3.fromRGB(255, 210, 90) end,
+                function(c) config.EliDmgColor2 = c end)
+        else
+            local lbl1 = DnBox:AddLabel("Color 1")
+            if lbl1 and lbl1.AddColorPicker then
+                lbl1:AddColorPicker("EliDmgColor1", {
+                    Default = config.EliDmgColor1 or Color3.fromRGB(255, 80, 80),
+                    Title = "Color 1",
+                    Callback = function(c) config.EliDmgColor1 = c end
+                })
+            end
+            local lbl2 = DnBox:AddLabel("Color 2")
+            if lbl2 and lbl2.AddColorPicker then
+                lbl2:AddColorPicker("EliDmgColor2", {
+                    Default = config.EliDmgColor2 or Color3.fromRGB(255, 210, 90),
+                    Title = "Color 2",
+                    Callback = function(c) config.EliDmgColor2 = c end
+                })
+            end
+        end
+    end)
+    DnBox:AddDropdown("EliDmgFont", {
+        Text = "Font",
+        Values = {"GothamBold","Gotham","SourceSansBold","Code","Arcade","Fantasy","SciFi","BuilderSansBold"},
+        Default = 1,
+        Callback = function(v) config.EliDmgFont = v end
+    })
+    DnBox:AddSlider("EliDmgSize", {
+        Text = "Text Size", Default = 18, Min = 10, Max = 40, Rounding = 0,
+        Callback = function(v) config.EliDmgSize = v end
+    })
+    DnBox:AddSlider("EliDmgDuration", {
+        Text = "Duration", Default = 0.8, Min = 0.2, Max = 3, Rounding = 1,
+        Callback = function(v) config.EliDmgDuration = v end
+    })
+    DnBox:AddSlider("EliDmgRise", {
+        Text = "Rise", Default = 42, Min = 0, Max = 120, Rounding = 0,
+        Callback = function(v) config.EliDmgRise = v end
+    })
+    DnBox:AddLabel("Solo muestra daño de TUS hits")
+
+    local DeBox = visTab:AddLeftGroupbox("elisium death effects")
+    DeBox:AddToggle("EliDeathFX", {
+        Text = "Death Effects", Default = false,
+        Callback = function(v) config.EliDeathFX = v end
+    })
+    DeBox:AddDropdown("EliDeathType", {
+        Text = "Type",
+        Values = {"Explosion", "Fire", "Sparkles", "Neon Burst"},
+        Default = 1,
+        Callback = function(v) config.EliDeathType = v end
+    })
+
+    local WrBox = visTab:AddRightGroupbox("elisium world")
+    WrBox:AddToggle("EliAntiFlash", {
+        Text = "Anti Flashbang", Default = false,
+        Callback = function(v) config.EliAntiFlash = v end
+    })
+    WrBox:AddToggle("EliWorldTex", {
+        Text = "World Textures", Default = false,
+        Callback = function(v)
+            config.EliWorldTex = v
+            if v and getgenv()._ShakoEli then getgenv()._ShakoEli.applyWorldTex() end
+        end
+    })
+    WrBox:AddDropdown("EliWorldMaterial", {
+        Text = "Material",
+        Values = {"SmoothPlastic","Neon","ForceField","Glass","Concrete","Fabric"},
+        Default = 1,
+        Callback = function(v) config.EliWorldMaterial = v end
+    })
+    WrBox:AddButton({
+        Text = "Apply World Textures",
+        Func = function()
+            if getgenv()._ShakoEli then getgenv()._ShakoEli.applyWorldTex() end
+        end
+    })
+
+    local ChBox = visTab:AddLeftGroupbox("elisium weapon chams")
+    ChBox:AddToggle("EliWeaponChams", {
+        Text = "Weapon Chams", Default = false,
+        Callback = function(v)
+            config.EliWeaponChams = v
+            if v and getgenv()._ShakoEli then getgenv()._ShakoEli.applyWeaponChams() end
+        end
+    })
+    ChBox:AddDropdown("EliWeaponMaterial", {
+        Text = "Weapon Material",
+        Values = {"Neon","ForceField","Glass","SmoothPlastic","Metal"},
+        Default = 1,
+        Callback = function(v) config.EliWeaponMaterial = v end
+    })
+    ChBox:AddSlider("EliWeaponTrans", {
+        Text = "Weapon Transparency", Default = 0, Min = 0, Max = 1, Rounding = 2,
+        Callback = function(v) config.EliWeaponTrans = v end
+    })
+    ChBox:AddToggle("EliArmChams", {
+        Text = "Arm Chams", Default = false,
+        Callback = function(v) config.EliArmChams = v end
+    })
+    ChBox:AddDropdown("EliArmMaterial", {
+        Text = "Arm Material",
+        Values = {"ForceField","Neon","Glass","SmoothPlastic"},
+        Default = 1,
+        Callback = function(v) config.EliArmMaterial = v end
+    })
+end)
+
 end -- BuildUI
 pcall(function() BuildUI() end)
 if not Window then warn("[shako] UI fail") return end
@@ -18325,6 +18789,563 @@ pcall(function() task.defer(function()
     getgenv()._ShakoQuiet = false
 end) end)
 
+
+
+
+
+-- ==================== ELISIUM VISUALS PACK (register-safe function scope) ====================
+task.spawn(function()
+    local Eli = getgenv()._ShakoEli
+    if type(Eli) ~= "table" then Eli = {} end
+    getgenv()._ShakoEli = Eli
+
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local Lighting = game:GetService("Lighting")
+    local UserInputService = game:GetService("UserInputService")
+    local SoundService = game:GetService("SoundService")
+    local LocalPlayer = Players.LocalPlayer
+    local config = getgenv().config
+    if type(config) ~= "table" then return end
+
+    Eli.hitsounds = {
+        ["windows xp"] = 108009100115241,
+        ["minecraft bow"] = 3442683707,
+        ["neverlose"] = 97643101798871,
+        ["steve"] = 132883456216684,
+        ["among us"] = 93866204681438,
+        ["bonk"] = 5766898159,
+        ["rust"] = 1255040462,
+        ["fatality"] = 6534947869,
+        ["hitmarker"] = 133749572213659,
+        ["csgo"] = 5764885315,
+        ["minecraft success bow hit"] = 131197435969853,
+    }
+    Eli.tracerTextures = {
+        ["beam"] = "rbxassetid://12781852245",
+        ["lightning"] = "rbxassetid://446111271",
+        ["heartrate"] = "rbxassetid://5830549480",
+        ["chain"] = "rbxassetid://9632168658",
+        ["glitch"] = "rbxassetid://8089467613",
+        ["swirl"] = "rbxassetid://5638168605",
+        ["neon"] = "rbxassetid://6361963422",
+        ["laser1"] = "rbxassetid://6091329339",
+        ["line1"] = "rbxassetid://16726866463",
+        ["none (solid)"] = "",
+    }
+
+    local function ensure(k, v)
+        if config[k] == nil then config[k] = v end
+    end
+    ensure("EliStretch", false)
+    ensure("EliStretchAmount", 0.20)
+    ensure("EliFOV", false)
+    ensure("EliFOVValue", 80)
+    ensure("EliTracers", false)
+    ensure("EliTracerTexture", "lightning")
+    ensure("EliTracerLife", 1.5)
+    ensure("EliTracerGlow", 4)
+    ensure("EliTracerWidth0", 0.35)
+    ensure("EliTracerWidth1", 0.15)
+    ensure("EliTracerSpeed", 3)
+    ensure("EliTracerThroughWalls", false)
+    ensure("EliTracerColorStart", Color3.fromRGB(255, 255, 255))
+    ensure("EliTracerColorEnd", Color3.fromRGB(255, 200, 80))
+    ensure("EliHitSound", false)
+    ensure("EliHitSoundName", "rust")
+    ensure("EliHitVolume", 3)
+    ensure("EliHitPitch", 1)
+    ensure("EliHitRemoveDefault", true)
+    ensure("EliDmgNum", false)
+    ensure("EliDmgRemoveIngame", true)
+    ensure("EliDmgColor1", Color3.fromRGB(255, 80, 80))
+    ensure("EliDmgColor2", Color3.fromRGB(255, 210, 90))
+    ensure("EliDmgFont", "GothamBold")
+    ensure("EliDmgSize", 18)
+    ensure("EliDmgDuration", 0.8)
+    ensure("EliDmgRise", 42)
+    ensure("EliDmgGradient", true)
+    ensure("EliDeathFX", false)
+    ensure("EliDeathType", "Explosion")
+    ensure("EliDeathColor", Color3.fromRGB(120, 81, 166))
+    ensure("EliAntiFlash", false)
+    ensure("EliWorldTex", false)
+    ensure("EliWorldColor", Color3.fromRGB(40, 40, 45))
+    ensure("EliWorldMaterial", "SmoothPlastic")
+    ensure("EliWeaponChams", false)
+    ensure("EliWeaponColor", Color3.fromRGB(255, 105, 180))
+    ensure("EliWeaponMaterial", "Neon")
+    ensure("EliWeaponTrans", 0)
+    ensure("EliArmChams", false)
+    ensure("EliArmColor", Color3.fromRGB(255, 255, 255))
+    ensure("EliArmMaterial", "ForceField")
+
+    local function playEliHit()
+        if not config.EliHitSound then return end
+        local id = Eli.hitsounds[config.EliHitSoundName] or Eli.hitsounds["rust"]
+        if not id then return end
+        pcall(function()
+            local s = Instance.new("Sound")
+            s.SoundId = "rbxassetid://" .. tostring(id)
+            s.Volume = tonumber(config.EliHitVolume) or 3
+            s.PlaybackSpeed = tonumber(config.EliHitPitch) or 1
+            s.Parent = SoundService
+            s:Play()
+            s.Ended:Connect(function() s:Destroy() end)
+            task.delay(5, function() pcall(function() s:Destroy() end) end)
+        end)
+    end
+    Eli.playHit = playEliHit
+
+    task.defer(function()
+        pcall(function()
+            local ps = LocalPlayer:WaitForChild("PlayerScripts", 10)
+            if not ps or Eli._hitHooked then return end
+            local function tryHook(mod)
+                if not mod then return end
+                local ok, vm = pcall(require, mod)
+                if not ok or type(vm) ~= "table" or type(vm.PlayHitmarkerSound) ~= "function" then return end
+                if Eli._hitHooked then return end
+                Eli._hitHooked = true
+                local old = vm.PlayHitmarkerSound
+                vm.PlayHitmarkerSound = function(controller, critical, pitch)
+                    if config.EliHitSound then
+                        playEliHit()
+                        if config.EliHitRemoveDefault then return end
+                    end
+                    return old(controller, critical, pitch)
+                end
+            end
+            for _, folder in ipairs({ps:FindFirstChild("Modules"), ps:FindFirstChild("Controllers")}) do
+                if folder then
+                    for _, child in ipairs(folder:GetDescendants()) do
+                        if child.Name:find("ViewModel") or child.Name:find("ClientView") then
+                            tryHook(child)
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+
+    if not Eli._camLoop then
+        Eli._camLoop = true
+        RunService.RenderStepped:Connect(function()
+            local cam = workspace.CurrentCamera
+            if not cam then return end
+            if config.EliStretch then
+                local a = tonumber(config.EliStretchAmount) or 0.2
+                cam.CFrame = cam.CFrame * CFrame.new(0, 0, 0, 1, 0, 0, 0, a, 0, 0, 0, 1)
+            end
+            if config.EliFOV then
+                cam.FieldOfView = tonumber(config.EliFOVValue) or 80
+            end
+        end)
+    end
+
+    function Eli.spawnTracer(fromPos, toPos)
+        if not config.EliTracers then return end
+        pcall(function()
+            local p0 = Instance.new("Part")
+            p0.Anchored = true p0.CanCollide = false p0.Transparency = 1
+            p0.Size = Vector3.new(0.1, 0.1, 0.1)
+            p0.CFrame = CFrame.new(fromPos)
+            p0.Parent = workspace
+            local p1 = p0:Clone()
+            p1.CFrame = CFrame.new(toPos)
+            p1.Parent = workspace
+            local att0 = Instance.new("Attachment")
+            local att1 = Instance.new("Attachment")
+            att0.Parent = p0
+            att1.Parent = p1
+            local beam = Instance.new("Beam")
+            beam.Attachment0 = att0
+            beam.Attachment1 = att1
+            beam.Width0 = tonumber(config.EliTracerWidth0) or 0.35
+            beam.Width1 = tonumber(config.EliTracerWidth1) or 0.15
+            beam.FaceCamera = true
+            beam.LightEmission = tonumber(config.EliTracerGlow) or 4
+            beam.Brightness = tonumber(config.EliTracerGlow) or 4
+            beam.TextureSpeed = tonumber(config.EliTracerSpeed) or 3
+            beam.Texture = Eli.tracerTextures[config.EliTracerTexture or "lightning"] or ""
+            beam.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, config.EliTracerColorStart or Color3.new(1, 1, 1)),
+                ColorSequenceKeypoint.new(1, config.EliTracerColorEnd or Color3.new(1, 1, 1)),
+            })
+            beam.Parent = p0
+            local life = tonumber(config.EliTracerLife) or 1.5
+            task.delay(life, function()
+                pcall(function() p0:Destroy() end)
+                pcall(function() p1:Destroy() end)
+            end)
+        end)
+    end
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp or not config.EliTracers then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        task.defer(function()
+            local cam = workspace.CurrentCamera
+            local char = LocalPlayer.Character
+            if not cam or not char then return end
+            local origin = cam.CFrame.Position
+            local dir = cam.CFrame.LookVector * 500
+            local params = RaycastParams.new()
+            params.FilterDescendantsInstances = {char}
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            local res = workspace:Raycast(origin, dir, params)
+            local to = res and res.Position or (origin + dir)
+            local from = origin + cam.CFrame.LookVector * 2
+            pcall(function()
+                for _, d in ipairs(char:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        local n = d.Name:lower()
+                        if n:find("muzzle") or n:find("barrel") then
+                            from = d.Position
+                            break
+                        end
+                    end
+                end
+            end)
+            Eli.spawnTracer(from, to)
+        end)
+    end)
+
+    local dgui
+    pcall(function()
+        dgui = Instance.new("ScreenGui")
+        dgui.Name = "ShakoEliDmg"
+        dgui.ResetOnSpawn = false
+        dgui.IgnoreGuiInset = true
+        dgui.DisplayOrder = 500
+        dgui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+    end)
+
+    function Eli.showDamage(amount, worldpos)
+        if not config.EliDmgNum or not worldpos or not dgui then return end
+        pcall(function()
+            local cam = workspace.CurrentCamera
+            local sp, on = cam:WorldToViewportPoint(worldpos)
+            if not on then return end
+            local lbl = Instance.new("TextLabel")
+            lbl.BackgroundTransparency = 1
+            lbl.Size = UDim2.fromOffset(140, 26)
+            lbl.AnchorPoint = Vector2.new(0.5, 0.5)
+            lbl.Position = UDim2.fromOffset(sp.X, sp.Y)
+            local fontOk, font = pcall(function() return Enum.Font[config.EliDmgFont or "GothamBold"] end)
+            lbl.Font = (fontOk and font) or Enum.Font.GothamBold
+            lbl.TextSize = tonumber(config.EliDmgSize) or 18
+            lbl.Text = "-" .. tostring(math.floor((amount or 0) + 0.5))
+            lbl.TextColor3 = config.EliDmgColor1 or Color3.fromRGB(255, 80, 80)
+            lbl.ZIndex = 10
+            lbl.Parent = dgui
+            local stroke = Instance.new("UIStroke")
+            stroke.Thickness = 1.5
+            stroke.Color = Color3.new(0, 0, 0)
+            stroke.Parent = lbl
+            if config.EliDmgGradient ~= false then
+                local g = Instance.new("UIGradient")
+                g.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, config.EliDmgColor1 or Color3.fromRGB(255, 80, 80)),
+                    ColorSequenceKeypoint.new(1, config.EliDmgColor2 or Color3.fromRGB(255, 210, 90)),
+                })
+                g.Rotation = 90
+                g.Parent = lbl
+                lbl.TextColor3 = Color3.new(1, 1, 1)
+            end
+            local startT = tick()
+            local dur = tonumber(config.EliDmgDuration) or 0.8
+            local rise = tonumber(config.EliDmgRise) or 42
+            local jitter = math.random(-14, 14)
+            local conn
+            conn = RunService.RenderStepped:Connect(function()
+                local tt = (tick() - startT) / dur
+                if tt >= 1 then
+                    conn:Disconnect()
+                    pcall(function() lbl:Destroy() end)
+                    return
+                end
+                lbl.Position = UDim2.fromOffset(sp.X + jitter * tt, sp.Y - rise * tt)
+                lbl.TextTransparency = tt * tt
+                stroke.Transparency = 0.15 + tt * 0.85
+            end)
+        end)
+    end
+
+    -- Damage numbers: solo si TÚ pegaste hace <0.45s (flag de PlayHitmarkerSound)
+    -- Hitsound: NUNCA aquí (solo en hook LocalPlayer)
+    task.spawn(function()
+        task.wait(2)
+        local last = {}
+        while true do
+            task.wait(0.1)
+            if config.EliDmgNum then
+                local hitAt = tonumber(getgenv()._ShakoLocalHitAt) or 0
+                local recentLocalHit = (tick() - hitAt) < 0.45
+                if recentLocalHit then
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= LocalPlayer then
+                            local char = plr.Character
+                            local hum = char and char:FindFirstChildOfClass("Humanoid")
+                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                            if hum and hrp then
+                                local hp = hum.Health
+                                local prev = last[plr]
+                                if prev and hp < prev - 0.5 then
+                                    Eli.showDamage(prev - hp, hrp.Position + Vector3.new(0, 2.2, 0))
+                                end
+                                last[plr] = hp
+                            end
+                        end
+                    end
+                else
+                    -- actualizar last sin mostrar (otros pegando)
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= LocalPlayer then
+                            local char = plr.Character
+                            local hum = char and char:FindFirstChildOfClass("Humanoid")
+                            if hum then last[plr] = hum.Health end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    function Eli.deathFX(pos)
+        if not config.EliDeathFX or not pos then return end
+        pcall(function()
+            local typ = config.EliDeathType or "Explosion"
+            local col = config.EliDeathColor or Color3.fromRGB(120, 81, 166)
+            if typ == "Explosion" then
+                local e = Instance.new("Explosion")
+                e.Position = pos
+                e.BlastPressure = 0
+                e.BlastRadius = 0
+                e.DestroyJointRadiusPercent = 0
+                e.ExplosionType = Enum.ExplosionType.NoCraters
+                e.Parent = workspace
+            elseif typ == "Fire" then
+                local part = Instance.new("Part")
+                part.Anchored = true part.CanCollide = false part.Transparency = 1
+                part.Size = Vector3.new(1, 1, 1) part.Position = pos part.Parent = workspace
+                local f = Instance.new("Fire")
+                f.Size = 10 f.Heat = 10 f.Color = col f.Parent = part
+                task.delay(2, function() part:Destroy() end)
+            elseif typ == "Sparkles" then
+                local part = Instance.new("Part")
+                part.Anchored = true part.CanCollide = false part.Transparency = 1
+                part.Size = Vector3.new(1, 1, 1) part.Position = pos part.Parent = workspace
+                local s = Instance.new("Sparkles")
+                s.SparkleColor = col s.Parent = part
+                task.delay(2, function() part:Destroy() end)
+            else
+                local part = Instance.new("Part")
+                part.Anchored = true part.CanCollide = false
+                part.Material = Enum.Material.Neon
+                part.Color = col
+                part.Size = Vector3.new(1, 1, 1)
+                part.Position = pos
+                part.Parent = workspace
+                task.spawn(function()
+                    for i = 1, 12 do
+                        part.Size = Vector3.new(i, i, i)
+                        part.Transparency = i / 12
+                        task.wait(0.03)
+                    end
+                    part:Destroy()
+                end)
+            end
+        end)
+    end
+
+    local function watchDeath(plr)
+        if plr == LocalPlayer then return end
+        local function bind(char)
+            local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+            if not hum then return end
+            hum.Died:Connect(function()
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then Eli.deathFX(hrp.Position) end
+            end)
+        end
+        plr.CharacterAdded:Connect(bind)
+        if plr.Character then bind(plr.Character) end
+    end
+    for _, plr in ipairs(Players:GetPlayers()) do watchDeath(plr) end
+    Players.PlayerAdded:Connect(watchDeath)
+
+    if not Eli._antiFlash then
+        Eli._antiFlash = true
+        RunService.Heartbeat:Connect(function()
+            if not config.EliAntiFlash then return end
+            pcall(function()
+                for _, fx in ipairs(Lighting:GetChildren()) do
+                    if fx:IsA("ColorCorrectionEffect") and (fx.Brightness > 0.3 or fx.Contrast > 0.5) then
+                        fx.Brightness = 0 fx.Contrast = 0 fx.Saturation = 0
+                    elseif fx:IsA("BloomEffect") and fx.Intensity > 1 then
+                        fx.Intensity = 0
+                    elseif fx:IsA("BlurEffect") and fx.Size > 8 then
+                        fx.Size = 0
+                    end
+                end
+                local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                if pg then
+                    for _, g in ipairs(pg:GetDescendants()) do
+                        if g:IsA("GuiObject") then
+                            local n = string.lower(g.Name)
+                            if n:find("flash") or n:find("blind") or n:find("bang") then
+                                g.Visible = false
+                            end
+                        end
+                    end
+                end
+            end)
+        end)
+    end
+
+    function Eli.applyWorldTex()
+        if not config.EliWorldTex then return end
+        task.spawn(function()
+            local mat = Enum.Material[config.EliWorldMaterial or "SmoothPlastic"] or Enum.Material.SmoothPlastic
+            local col = config.EliWorldColor or Color3.fromRGB(40, 40, 45)
+            local n = 0
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    local skip = false
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr.Character and obj:IsDescendantOf(plr.Character) then skip = true break end
+                    end
+                    if not skip then
+                        pcall(function()
+                            obj.Material = mat
+                            obj.Color = col
+                        end)
+                        n = n + 1
+                        if n % 80 == 0 then task.wait() end
+                    end
+                end
+            end
+        end)
+    end
+
+    function Eli.applyWeaponChams()
+        local char = LocalPlayer.Character
+        if not char then return end
+        pcall(function()
+            for _, d in ipairs(char:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    local n = d.Name:lower()
+                    local isArm = n:find("arm") or n:find("hand") or n:find("glove")
+                    if config.EliWeaponChams and d.Parent and d.Parent:IsA("Tool") then
+                        d.Material = Enum.Material[config.EliWeaponMaterial or "Neon"] or Enum.Material.Neon
+                        d.Color = config.EliWeaponColor or Color3.fromRGB(255, 105, 180)
+                        d.Transparency = tonumber(config.EliWeaponTrans) or 0
+                    end
+                    if config.EliArmChams and isArm then
+                        d.Material = Enum.Material[config.EliArmMaterial or "ForceField"] or Enum.Material.ForceField
+                        d.Color = config.EliArmColor or Color3.new(1, 1, 1)
+                    end
+                end
+            end
+            local cam = workspace.CurrentCamera
+            if cam and config.EliWeaponChams then
+                for _, d in ipairs(cam:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        d.Material = Enum.Material[config.EliWeaponMaterial or "Neon"] or Enum.Material.Neon
+                        d.Color = config.EliWeaponColor or Color3.fromRGB(255, 105, 180)
+                    end
+                end
+            end
+        end)
+    end
+
+    task.spawn(function()
+        while true do
+            task.wait(0.5)
+            if config.EliWeaponChams or config.EliArmChams then
+                Eli.applyWeaponChams()
+            end
+        end
+    end)
+
+    
+    -- Quitar damage numbers del JUEGO y usar solo los del hack
+    task.defer(function()
+        task.wait(1.5)
+        pcall(function()
+            local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+            local fc = ps and ps:FindFirstChild("Controllers")
+            local FighterController = fc and fc:FindFirstChild("FighterController")
+            if not FighterController then return end
+            local ok, controller = pcall(require, FighterController)
+            if not ok or not controller then return end
+            local fighter = controller.LocalFighter
+            if not fighter and type(controller.GetFighter) == "function" then
+                pcall(function() fighter = controller:GetFighter(LocalPlayer) end)
+            end
+            if not fighter then return end
+
+            -- Hook ReplicateFromServer (Elisium style)
+            if type(fighter.ReplicateFromServer) == "function" and not Eli._dmgRepHooked then
+                Eli._dmgRepHooked = true
+                local orig = fighter.ReplicateFromServer
+                fighter.ReplicateFromServer = function(ctrl, typ, ...)
+                    if typ == "DamageNumberEffect" and config.EliDmgNum then
+                        local args = {...}
+                        local hit_root = args[1]
+                        local hit_damage = args[2]
+                        local is_headshot = args[3]
+                        getgenv()._ShakoLocalHitAt = tick()
+                        local pos
+                        pcall(function()
+                            if hit_root and hit_root.Position then
+                                pos = hit_root.Position + Vector3.new(0, is_headshot and 2.6 or 2.1, 0)
+                            end
+                        end)
+                        if pos and hit_damage then
+                            Eli.showDamage(hit_damage, pos)
+                        end
+                        return -- NO mostrar numero del juego
+                    end
+                    return orig(ctrl, typ, ...)
+                end
+                print("[shako] DamageNumberEffect hooked (remove ingame)")
+            end
+
+            -- Hook _DamageNumberEffect on fighter metatable class
+            pcall(function()
+                local mt = getmetatable(fighter)
+                local idx = mt and mt.__index
+                if type(idx) == "table" and type(idx._DamageNumberEffect) == "function" and not Eli._dmgClassHooked then
+                    Eli._dmgClassHooked = true
+                    local old = idx._DamageNumberEffect
+                    idx._DamageNumberEffect = function(...)
+                        if config.EliDmgNum then
+                            -- intentar extraer daño/pos de args
+                            local args = table.pack(...)
+                            for i = 1, args.n do
+                                local a = args[i]
+                                if typeof(a) == "Vector3" then
+                                    Eli.showDamage(25, a) -- fallback amount
+                                    break
+                                elseif typeof(a) == "Instance" and a:IsA("BasePart") then
+                                    Eli.showDamage(25, a.Position + Vector3.new(0, 2.2, 0))
+                                    break
+                                end
+                            end
+                            return nil
+                        end
+                        return old(...)
+                    end
+                end
+            end)
+        end)
+    end)
+
+
+    print("[shako] Elisium visuals pack OK (isolated scope)")
+end)
 
 pcall(function() getgenv().shako_win_ok = true end)
 
