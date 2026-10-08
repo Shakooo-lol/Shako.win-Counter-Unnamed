@@ -9747,12 +9747,37 @@ local function espProGetGuiParent()
     return p
 end
 
+-- Pares de huesos fijos (R15 + R6) — no depende de Motor6D
+local ESP_BONE_PAIRS = {
+    -- R15
+    { "Head", "UpperTorso" },
+    { "UpperTorso", "LowerTorso" },
+    { "UpperTorso", "LeftUpperArm" },
+    { "LeftUpperArm", "LeftLowerArm" },
+    { "LeftLowerArm", "LeftHand" },
+    { "UpperTorso", "RightUpperArm" },
+    { "RightUpperArm", "RightLowerArm" },
+    { "RightLowerArm", "RightHand" },
+    { "LowerTorso", "LeftUpperLeg" },
+    { "LeftUpperLeg", "LeftLowerLeg" },
+    { "LeftLowerLeg", "LeftFoot" },
+    { "LowerTorso", "RightUpperLeg" },
+    { "RightUpperLeg", "RightLowerLeg" },
+    { "RightLowerLeg", "RightFoot" },
+    -- R6
+    { "Head", "Torso" },
+    { "Torso", "Left Arm" },
+    { "Torso", "Right Arm" },
+    { "Torso", "Left Leg" },
+    { "Torso", "Right Leg" },
+}
+
 local function espProRebuild(e, now)
     e.dirty = false
     e.lastBuild = now
     local model = e.model
     local parts = {}
-    for _, c in ipairs(model:GetChildren()) do
+    for _, c in ipairs(model:GetDescendants()) do
         if c:IsA("BasePart") then
             parts[#parts + 1] = c
         end
@@ -9762,29 +9787,23 @@ local function espProRebuild(e, now)
     e.head = (head and head:IsA("BasePart")) and head or nil
     e.hrp = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart or parts[1]
 
-    local motors, byChild, hasChild, neckByPart = {}, {}, {}, {}
-    for _, d in ipairs(model:GetDescendants()) do
-        if d:IsA("Motor6D") and d.Part0 and d.Part1 and d.Part0.Parent == model and d.Part1.Parent == model then
-            motors[#motors + 1] = d
-            byChild[d.Part1] = d
-            hasChild[d.Part0] = true
-            if d.Name == "Neck" then
-                neckByPart[d.Part0] = d
+    -- construir lista de {partA, partB}
+    local bones = {}
+    local seen = {}
+    for _, pair in ipairs(ESP_BONE_PAIRS) do
+        local a = model:FindFirstChild(pair[1])
+        local b = model:FindFirstChild(pair[2])
+        if a and b and a:IsA("BasePart") and b:IsA("BasePart") then
+            local key = pair[1] .. "|" .. pair[2]
+            if not seen[key] then
+                seen[key] = true
+                bones[#bones + 1] = { partA = a, partB = b }
             end
         end
     end
-    local bones = {}
-    for _, m in ipairs(motors) do
-        local parent = byChild[m.Part0]
-        if m.Name:find("Shoulder") and neckByPart[m.Part0] then
-            parent = neckByPart[m.Part0]
-        end
-        if parent and parent ~= m then
-            bones[#bones + 1] = { a = m, b = parent }
-        end
-        if not hasChild[m.Part1] and m.Part1.Name ~= "Head" then
-            bones[#bones + 1] = { a = m, leaf = m.Part1 }
-        end
+    -- fallback: si no hay pares (rig raro), unir HRP-Head
+    if #bones == 0 and e.hrp and e.head then
+        bones[1] = { partA = e.head, partB = e.hrp }
     end
     e.bones = bones
 end
@@ -10089,32 +10108,29 @@ local function espProDraw(e, camPos, color, vp, now, cam)
         e.fill.BackgroundTransparency = 0.82
     end
 
-    -- SKELETON
+    -- SKELETON (part-to-part, full body)
     if showSkel then
-        table.clear(e.jp)
         local used = 0
+        local th = tonumber(config.ESPSkeletonThickness) or 1.5
         for i, bone in ipairs(e.bones) do
-            local A = espProJoint2D(e, bone.a, cam)
-            local B
-            if bone.b then
-                B = espProJoint2D(e, bone.b, cam)
-            else
-                local leaf = bone.leaf
-                if leaf and leaf.Parent then
-                    local sp = cam:WorldToViewportPoint(leaf.CFrame * Vector3.new(0, -leaf.Size.Y / 2, 0))
-                    B = sp.Z > 0 and Vector2.new(sp.X, sp.Y) or false
-                else
-                    B = false
+            local out, main = espProGetLines(e, i)
+            local pa, pb = bone.partA, bone.partB
+            local A, B = nil, nil
+            if pa and pa.Parent and pb and pb.Parent then
+                local sa, oa = cam:WorldToViewportPoint(pa.Position)
+                local sb, ob = cam:WorldToViewportPoint(pb.Position)
+                if sa.Z > 0 and sb.Z > 0 then
+                    A = Vector2.new(sa.X, sa.Y)
+                    B = Vector2.new(sb.X, sb.Y)
                 end
             end
-            local out, main = espProGetLines(e, i)
-            if A and B then
-                espProSetLine(main, A, B, tonumber(config.ESPSkeletonThickness) or 2, color)
+            if A and B and (A - B).Magnitude > 1 then
                 if skelOutline then
-                    espProSetLine(out, A, B, (tonumber(config.ESPSkeletonThickness) or 2) + 2, Color3.new(0, 0, 0))
+                    espProSetLine(out, A, B, th + 2, Color3.new(0, 0, 0))
                 else
                     out.Visible = false
                 end
+                espProSetLine(main, A, B, th, color)
             else
                 out.Visible = false
                 main.Visible = false
