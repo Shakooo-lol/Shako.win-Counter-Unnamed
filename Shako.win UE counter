@@ -926,7 +926,7 @@ getgenv().config = {
 
     BlinkEnabled = false, -- meoww-style blink anti-rager
     BlinkRadius = 90,
-    BlinkRate = 40,
+    BlinkRate = 15,
 
     PredRadius = 90,
     PredDodgeDist = 120,
@@ -1075,7 +1075,7 @@ getgenv().config = {
 
     ESPEnabled = false,
     ESPPerfMode = true, -- OPT: ESP ligero high FPS
-    ESPMaxPlayers = 8, -- modificable en UI
+    ESPMaxPlayers = 6, -- menos lag
     ESPUpdateInterval = 0.033, -- ~30 Hz fluido
     ESPRadar = false,
     ESPChams = false,
@@ -4944,7 +4944,7 @@ function StartTriggerbot()
     local tbFrame = 0
     Connections.Triggerbot = RunService.RenderStepped:Connect(function()
         tbFrame += 1
-        if tbFrame % 2 ~= 0 then return end -- OPT
+        if tbFrame % 3 ~= 0 then return end -- OPT
         if not config.TriggerbotEnabled or UserInputService:GetFocusedTextBox() then return end
         local partName = config.TriggerbotPart or "Head"
         local mousePos = UserInputService:GetMouseLocation()
@@ -5124,6 +5124,8 @@ StartFOVDraw = function()
     SafeDisconnect("FOVDraw")
     local fovFrame = 0
     Connections.FOVDraw = RunService.Heartbeat:Connect(function()
+        fovFrame += 1
+        if fovFrame % 3 ~= 0 then return end -- less lag
         -- skip si ninguno visible
         local sOn = config.SilentAimEnabled and config.SilentShowFOV ~= false
         local aOn = config.AimbotEnabled and config.AimbotShowFOV ~= false
@@ -6382,7 +6384,7 @@ StartAimbot = function()
     local aimFrame = 0
     Connections.Aimbot = RunService.RenderStepped:Connect(function()
         aimFrame += 1
-        if aimFrame % 2 ~= 0 then return end
+        if aimFrame % 3 ~= 0 then return end
         pcall(aimStep)
     end)
     Notify("Aimbot", "ON · Hold = mantener tecla")
@@ -7895,7 +7897,7 @@ StartStickRender = function()
     local stickFrame = 0
     Connections.StickRender = RunService.RenderStepped:Connect(function()
         stickFrame += 1
-        if stickFrame % 2 ~= 0 then return end -- OPT
+        if stickFrame % 3 ~= 0 then return end -- OPT
         if IsAntiUnnamedActive() or config.VoidSpamEnabled or config.RagebotEnabled then return end
         if not CanDoDangerousMove() or not config.StickOnRender then return end
         -- prioridad estricta: solo una a la vez, y solo si está activada
@@ -10348,8 +10350,14 @@ StartESP = function()
     end)
 
     pcall(function()
+        S._espFrame = 0
+        S._sorted = S._sorted or {}
+        S._lastSort = 0
         RunService:BindToRenderStep("ShakoESPPro", Enum.RenderPriority.Camera.Value + 1, function()
             if not config.ESPEnabled then return end
+            S._espFrame = (S._espFrame or 0) + 1
+            -- ~20 FPS ESP (menos tirones)
+            if S._espFrame % 3 ~= 0 then return end
             local cam = workspace.CurrentCamera
             if not cam then return end
             local camPos = cam.CFrame.Position
@@ -10358,19 +10366,28 @@ StartESP = function()
             local color = espProColor()
             local maxP = math.clamp(tonumber(config.ESPMaxPlayers) or 8, 1, 25)
 
-            -- priorizar cercanos para no laggear
-            local list = {}
-            for model, e in pairs(S.Targets) do
-                if not model:IsDescendantOf(workspace) or not e.hum or not e.hum.Parent then
-                    espProRemove(model)
-                else
-                    local hrp = e.hrp or (model:FindFirstChild("HumanoidRootPart"))
-                    local d = hrp and (hrp.Position - camPos).Magnitude or 1e9
-                    list[#list + 1] = { model = model, e = e, dist = d }
+            -- reordenar solo cada 0.2s
+            if (now - (S._lastSort or 0)) > 0.2 then
+                S._lastSort = now
+                local list = {}
+                for model, e in pairs(S.Targets) do
+                    if not model.Parent or not e.hum or not e.hum.Parent then
+                        espProRemove(model)
+                    else
+                        local hrp = e.hrp
+                        if not hrp or not hrp.Parent then
+                            hrp = model:FindFirstChild("HumanoidRootPart")
+                            e.hrp = hrp
+                        end
+                        local d = hrp and (hrp.Position - camPos).Magnitude or 1e9
+                        list[#list + 1] = { e = e, dist = d }
+                    end
                 end
+                table.sort(list, function(a, b) return a.dist < b.dist end)
+                S._sorted = list
             end
-            table.sort(list, function(a, b) return a.dist < b.dist end)
 
+            local list = S._sorted or {}
             for i, item in ipairs(list) do
                 if i <= maxP then
                     pcall(espProDraw, item.e, camPos, color, vp, now, cam)
@@ -10381,7 +10398,13 @@ StartESP = function()
         end)
     end)
     S.bound = true
-    Notify("ESP", "ON · ESP PRO (rojo)")
+    -- parar otros ESP antiguos si existen
+    pcall(function()
+        if getgenv()._ShakoOldESP and getgenv()._ShakoOldESP.Stop then
+            getgenv()._ShakoOldESP.Stop()
+        end
+    end)
+    Notify("ESP", "ON")
 end
 
 StopESP = function()
@@ -11941,6 +11964,9 @@ getgenv().Weather = getgenv().Weather or {}
         local accum = 0
         _specialConn = RunService.Heartbeat:Connect(function(dt)
             if not Config.Weather or not _special.kind then return end
+            accum = accum + dt
+            if accum < 0.05 then return end
+            accum = 0
             accum = accum + dt
             if accum < 0.1 then return end
             accum = 0
@@ -14470,8 +14496,11 @@ end
 function StartWeaponWireframe()
     config.WeaponWireframe = true
     SafeDisconnect("WeaponWireframe")
+    local _wwFrame = 0
     Connections.WeaponWireframe = RunService.Heartbeat:Connect(function()
         if not config.WeaponWireframe then return end
+        _wwFrame += 1
+        if _wwFrame % 3 ~= 0 then return end
         local col = config.WeaponWireframeColor
         if typeof(col) ~= "Color3" then col = Color3.fromRGB(0, 255, 180) end
         for _, vm in ipairs(wfGetLocalVMs()) do
@@ -15157,6 +15186,8 @@ getgenv()._StartCrosshairReal = function()
     config.Crosshair = true
     if Vis.connX then return end
     Vis.connX = RunService.RenderStepped:Connect(function()
+        -- desactivado: crosshair ScreenGui es el activo
+        if true then return end
         config = getgenv().config
         if not config or not config.Crosshair then hideLines() return end
         if not Drawing then return end
@@ -15718,7 +15749,7 @@ getgenv()._ShakoGrokPresets = {
         PredRadius = 90,
         BlinkEnabled = true,
         BlinkRadius = 90,
-        BlinkRate = 35,
+        BlinkRate = 12,
         AntiAimEnabled = true,
         AntiAimMode = "Spin",
         SpinSpeed = 45,
@@ -20108,8 +20139,11 @@ do
 
         -- spin rings slowly
         if Aura.spin then pcall(function() Aura.spin:Disconnect() end) end
+        local _af = 0
         Aura.spin = game:GetService("RunService").RenderStepped:Connect(function(dt)
             if not config.BodyAuraEnabled then return end
+            _af += 1
+            if _af % 2 ~= 0 then return end
             if ring and ring.Parent then
                 pcall(function()
                     ring.CFrame = ring.CFrame * CFrame.Angles(0, dt * 1.6, 0)
@@ -20486,7 +20520,14 @@ do
     -- when toggles turn off mid-game, force restore next frame
     Vis2._lastNeed = false
     if Vis2.conn then pcall(function() Vis2.conn:Disconnect() end) end
+    local _vmFrame = 0
     Vis2.conn = RunService.RenderStepped:Connect(function()
+        -- solo si hay override/wireframe activo
+        if not (config.WeaponWireframe or config.ViewmodelOverride or config.OverrideWeaponStatus or config.ItemOverride) then
+            return
+        end
+        _vmFrame += 1
+        if _vmFrame % 3 ~= 0 then return end
         pcall(tickVM)
     end)
 end
@@ -20688,7 +20729,10 @@ do
         end
         buildGui()
         if CX.conn then pcall(function() CX.conn:Disconnect() end) end
+        local _cxf = 0
         CX.conn = RunService.RenderStepped:Connect(function()
+            _cxf += 1
+            if _cxf % 2 ~= 0 then return end
             pcall(update)
         end)
     end
