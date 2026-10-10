@@ -1,4 +1,4 @@
--- shako.win | v6.7.4 · damage numbers Elisium (quita los del juego)
+-- shako.win | v6.7.60 · Menu Key modo TOGGLE (1 press abre, 1 cierra)
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -406,6 +406,16 @@ do
 end
 getgenv()._ShakoUsingLinoria = _usingLinoria
 
+task.defer(function()
+    task.wait(0.3)
+    pcall(function()
+        local k = (getgenv().config and getgenv().config.MenuKey) or "RightShift"
+        Library.ToggleKeybind = tostring(k) -- string = modo toggle nativo de UELinoria
+        getgenv()._ShakoMenuKey = tostring(k)
+    end)
+end)
+
+
 pcall(function() Library.ShowCustomCursor = true end)
 
 local LucideIcons = {}
@@ -452,7 +462,7 @@ do
         end)
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v6.7.45",
+            Footer = "v6.7.60",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -519,23 +529,25 @@ getgenv()._ShakoBootAt = tick()
 -- stubs minimos por si algo queda referenciado
 local states = { spoofer_state = {}, skinchanger_state = { equipped = {}, fake_owned = {}, fake_weapon_owned = {} } }
 local modules = modules or {}
-local function SpoofDevice() end
-local function ApplyNameSpoof() end
-local function RefreshAllNameSpoofs() end
+-- Spoof helpers se definen mas abajo (Spoof / DeviceSpoof)
+local function SpoofDevice()
+    if DeviceSpoof and DeviceSpoof.enable then return DeviceSpoof.enable() end
+end
+local function ApplyNameSpoof()
+    if Spoof and Spoof.refreshLocal then Spoof.refreshLocal() end
+end
+local function RefreshAllNameSpoofs()
+    if Spoof and Spoof.refreshAll then Spoof.refreshAll() end
+end
 local function ApplyThumbnailSpoof() end
 local function UnlockAll() end
 local function UnlockSelectedRarity() end
 local function EquipApply() end
-getgenv().RivalsSetAvatarSpoof = function() end
-getgenv().RivalsClearAvatarSpoof = function() end
-getgenv().RivalsBroadcastAvatarSpoof = function() end
-
--- stubs spoof (por si configs viejas los llaman)
 RivalsSpoof = RivalsSpoof or {}
-function RivalsRefreshNames() end
+function RivalsRefreshNames() ApplyNameSpoof() end
 function RivalsUpdateBadges() end
 function RivalsSetAnonymous() end
-function RivalsApplyDevice() end
+function RivalsApplyDevice() SpoofDevice() end
 
 
 getgenv().config = {
@@ -784,6 +796,7 @@ getgenv().config = {
     CrosshairPosition = "center",
     DisableGameCrosshair = false,
     VMAppearance = false,
+    UnlockAll = false, -- Rivals skinchanger (all cosmetics local)
     VMColor = Color3.fromRGB(255, 255, 255),
     VMMaterial = "ForceField",
     VMWireframe = false,
@@ -820,13 +833,21 @@ getgenv().config = {
 
     SilentAimEnabled = false,
     SilentHitPart = "Head",
-    SilentPredict = false, -- OFF por defecto
-    SilentPredictAmount = 0.06,
-    SilentHeadOffsetY = 0.35, -- un poco arriba del centro de head
-    SilentFOV = 2000, -- FOV grande anti-UE lejano
+    SilentPredict = false,
+    SilentPredictAmount = 0.08,
+    SilentHeadOffsetY = 0,
+    SilentFOV = 800,
     SilentShowFOV = true,
     SilentTeamCheck = false,
     SilentForceAiming = true,
+    SilentActivationChance = 100,
+    SilentReactionTime = 0,
+    SilentSwitchDelay = 0,
+    SilentManipulate = true,
+    SilentManipulateMode = "OnBestTarget",
+    SilentWallCheck = false,
+    SilentVisibleCheck = false,
+    SilentUseHitboxHead = true,
     SilentFOVFill = true,
     SilentFOVFillTransparency = 0.92,
     SilentFOVAnimated = true,
@@ -1015,6 +1036,8 @@ getgenv().config = {
     AutoBanWeapons = {}, -- list of names to cycle ban
     AutoBanWeaponCurrent = "Sniper",
     AutoBanInterval = 1,
+    AutoQueueEnabled = false,
+    AutoQueueMatch = "1v1",
     AntiKick = true,
     SoftStick = false,
     SoftStickSpeed = 180,
@@ -1074,11 +1097,35 @@ getgenv().config = {
     RemoveAccessories = false,
 
     ESPEnabled = false,
-    ESPPerfMode = true, -- OPT: ESP ligero high FPS
-    ESPMaxPlayers = 6, -- menos lag
-    ESPUpdateInterval = 0.033, -- ~30 Hz fluido
+    ESPPerfMode = true,
+    ESPMaxPlayers = 12,
+    ESPUpdateInterval = 0.016,
     ESPRadar = false,
     ESPChams = false,
+    ESPChamsEnabled = false,
+    ESPChamsFill = Color3.fromRGB(255, 0, 0),
+    ESPChamsOutline = Color3.fromRGB(100, 0, 0),
+    ESPChamsFillTransparency = 0.5,
+    ESPChamsOutlineTransparency = 0.3,
+    ESPTeamCheck = false,
+    ESPTeamColor = Color3.fromRGB(80, 180, 255),
+    ESPEnemyColor = Color3.fromRGB(255, 255, 255),
+    ESPFilledBox = false,
+    ESPHeldWeapon = false,
+    ESPHealthNumber = false,
+    ESPTracer = false,
+    ESPTracerOrigin = "Bottom",
+    ESPTracerTarget = "Feet",
+    ESPTracerThickness = 1.5,
+    ESPTracerOutline = true,
+    ESPTracerColor = Color3.fromRGB(255, 255, 255),
+    ESPTracerOutlineColor = Color3.new(0, 0, 0),
+    ESPHeadMarker = false,
+    ESPHeadMarkerShape = "Cross",
+    ESPHeadMarkerColor = Color3.fromRGB(255, 80, 80),
+    ESPSkeletonColor = Color3.fromRGB(255, 255, 255),
+    ESPSkeletonThickness = 1.2,
+    ESPUseDisplayName = false,
 
     -- LuaHook ESP
     ESP = false,
@@ -1179,22 +1226,38 @@ getgenv().config = {
     CurrentSky = "None",
     AutoRespawn = false,
 
-    -- Spoofer
+    -- Spoofer (Kicia PlayerSpoofer style)
     SpoofEnabled = false,
     SpoofMyName = false,
     SpoofMyNameValue = "shako.win",
-    SpoofMyUserValue = "",     -- @username falso en perfil/UI (si vacio usa MyName)
+    SpoofMyUserValue = "",
+    SpoofMyDisplayName = false,
+    SpoofMyDisplayValue = "shako.win",
     SpoofOthers = false,
     SpoofOthersValue = "User",
     SpoofTargetName = "",
     SpoofTargetFake = "",
     SpoofHideReal = true,
     SpoofRandomOthers = false,
-    SpoofProfileUI = true,     -- reescribir perfil / PlayerGui
-    -- Device spoofer
+    SpoofProfileUI = true,
+    -- Avatar (userId) — sin lag loops
+    -- Stats visual (solo local UI)
+    SpoofLevelEnabled = false,
+    SpoofLevelValue = 999,
+    SpoofWinstreakEnabled = false,
+    SpoofWinstreakValue = 999,
+    SpoofRankEnabled = false,
+    SpoofRankValue = "Prime",
+    SpoofEloEnabled = false,
+    SpoofEloValue = 3600,
+    SpoofKeysEnabled = false,
+    SpoofKeysValue = 999,
+    SpoofLeaderboardEnabled = false,
+    SpoofLeaderboardValue = 1,
+    -- Device
     DeviceSpoofEnabled = false,
-    DeviceSpoofType = "Mobile", -- PC, Mobile, Console, VR, Controller
-    DeviceSpoofAttribute = true, -- setea atributos locales por si el juego los lee
+    DeviceSpoofType = "Mobile",
+    DeviceSpoofAttribute = true,
 
     -- Skinchanger
     SkinchangerEnabled = false,
@@ -1733,7 +1796,6 @@ pcall(function()
         "ESPEnabled","ESP","SpeedEnabled","JumpEnabled","AntiUnnamed","UECounter",
         "SleepyCounterEnabled","KiciaCounterEnabled","ManipulationEnabled","AutoClick",
         "ThirdPerson","StretchedRes","WeaponWireframe","WeatherEnabled","HitSoundEnabled",
-        "KillSoundEnabled","ForceField","AvatarSpoof","NameSpoof","DeviceSpoof",
         "SoftStick","HitboxExpand","FakePosition","Desync","DesyncStrong","BodyTwist",
     }
     for _, k in ipairs(offKeys) do
@@ -3919,271 +3981,140 @@ local Spoof = {
     tagged = {}, -- TextLabels ya tocados [obj] = true
 }
 
--- ==================== DEVICE SPOOFER ====================
--- ==================== DEVICE SPOOFER (Mobile / Console / VR / PC) ====================
--- Spoof local de flags que leen scripts del juego. No garantiza el server de Roblox.
+-- ==================== DEVICE SPOOFER (SetControls remote) ====================
 local DeviceSpoof = {
     hooked = false,
-    conn = nil,
 }
 
-local DEVICE_PRESETS = {
-    PC = {
-        Platform = Enum.Platform.Windows,
-        TouchEnabled = false,
-        KeyboardEnabled = true,
-        MouseEnabled = true,
-        GamepadEnabled = false,
-        GyroscopeEnabled = false,
-        AccelerometerEnabled = false,
-        VREnabled = false,
-        TenFoot = false,
-        label = "PC",
-        LastInput = Enum.UserInputType.Keyboard,
-    },
-    Mobile = {
-        Platform = Enum.Platform.IOS,
-        TouchEnabled = true,
-        KeyboardEnabled = false,
-        MouseEnabled = false,
-        GamepadEnabled = false,
-        GyroscopeEnabled = true,
-        AccelerometerEnabled = true,
-        VREnabled = false,
-        TenFoot = false,
-        label = "Mobile",
-        LastInput = Enum.UserInputType.Touch,
-    },
-    Console = {
-        Platform = Enum.Platform.XBoxOne,
-        TouchEnabled = false,
-        KeyboardEnabled = false,
-        MouseEnabled = false,
-        GamepadEnabled = true,
-        GyroscopeEnabled = false,
-        AccelerometerEnabled = false,
-        VREnabled = false,
-        TenFoot = true,
-        label = "Console",
-        LastInput = Enum.UserInputType.Gamepad1,
-    },
-    Controller = {
-        Platform = Enum.Platform.Windows,
-        TouchEnabled = false,
-        KeyboardEnabled = true,
-        MouseEnabled = true,
-        GamepadEnabled = true,
-        GyroscopeEnabled = false,
-        AccelerometerEnabled = false,
-        VREnabled = false,
-        TenFoot = false,
-        label = "Controller",
-        LastInput = Enum.UserInputType.Gamepad1,
-    },
-    VR = {
-        Platform = Enum.Platform.Windows,
-        TouchEnabled = false,
-        KeyboardEnabled = true,
-        MouseEnabled = true,
-        GamepadEnabled = true,
-        GyroscopeEnabled = true,
-        AccelerometerEnabled = true,
-        VREnabled = true,
-        TenFoot = false,
-        label = "VR",
-        LastInput = Enum.UserInputType.Gamepad1,
-    },
+-- Rivals: Remotes.Replication.Fighter.SetControls
+local DEVICE_MAP = {
+    PC = "MouseKeyboard",
+    Computer = "MouseKeyboard",
+    Mobile = "Touch",
+    Console = "Gamepad",
+    Controller = "Gamepad",
+    VR = "VR",
 }
 
-local UIS_KEYS = {
-    TouchEnabled = true,
-    KeyboardEnabled = true,
-    MouseEnabled = true,
-    GamepadEnabled = true,
-    GyroscopeEnabled = true,
-    AccelerometerEnabled = true,
-    VREnabled = true,
-}
-
-function DeviceSpoof.getPreset()
-    return DEVICE_PRESETS[config.DeviceSpoofType] or DEVICE_PRESETS.Mobile
-end
-
-function DeviceSpoof.applyAttributes()
-    local p = DeviceSpoof.getPreset()
-    pcall(function()
-        LocalPlayer:SetAttribute("Device", p.label)
-        LocalPlayer:SetAttribute("Platform", p.label)
-        LocalPlayer:SetAttribute("InputType", p.label)
-        LocalPlayer:SetAttribute("IsMobile", p.TouchEnabled == true)
-        LocalPlayer:SetAttribute("IsVR", p.VREnabled == true)
-        LocalPlayer:SetAttribute("IsConsole", config.DeviceSpoofType == "Console")
-        LocalPlayer:SetAttribute("IsController", p.GamepadEnabled == true)
-        LocalPlayer:SetAttribute("IsPC", config.DeviceSpoofType == "PC")
-        LocalPlayer:SetAttribute("DeviceType", p.label)
-        LocalPlayer:SetAttribute("PreferredInput", p.label)
+function DeviceSpoof.getRemote()
+    local ok, remote = pcall(function()
+        return game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes", 5)
+            :WaitForChild("Replication", 5)
+            :WaitForChild("Fighter", 5)
+            :WaitForChild("SetControls", 5)
     end)
-    -- carpeta señal local por si el juego la lee
-    pcall(function()
-        local folder = RS:FindFirstChild("__DeviceSpoof") or Instance.new("Folder")
-        folder.Name = "__DeviceSpoof"
-        folder.Parent = RS
-        folder:SetAttribute("Type", p.label)
-        folder:SetAttribute("Touch", p.TouchEnabled)
-        folder:SetAttribute("Gamepad", p.GamepadEnabled)
-        folder:SetAttribute("VR", p.VREnabled)
-        folder:SetAttribute("TenFoot", p.TenFoot)
+    if ok then
+        return remote
+    end
+    return nil
+end
+
+function DeviceSpoof.getControlName()
+    local t = config.DeviceSpoofType or "Mobile"
+    return DEVICE_MAP[t] or "Touch"
+end
+
+function DeviceSpoof.apply()
+    if not config.DeviceSpoofEnabled then
+        return false
+    end
+    local control = DeviceSpoof.getControlName()
+    local remote = DeviceSpoof.getRemote()
+    if not remote then
+        Notify("Device", "SetControls no encontrado")
+        return false
+    end
+    local ok, err = pcall(function()
+        remote:FireServer(control)
     end)
-end
-
-function DeviceSpoof.isUIS(obj)
-    if not obj then return false end
-    if obj == UserInputService then return true end
-    local ok, cn = pcall(function() return obj.ClassName end)
-    return ok and cn == "UserInputService"
-end
-
-function DeviceSpoof.isGuiService(obj)
-    if not obj then return false end
-    local ok, cn = pcall(function() return obj.ClassName end)
-    return ok and cn == "GuiService"
-end
-
-function DeviceSpoof.isVRService(obj)
-    if not obj then return false end
-    local ok, cn = pcall(function() return obj.ClassName end)
-    return ok and cn == "VRService"
+    if not ok then
+        Notify("Device", "Error: " .. tostring(err))
+        return false
+    end
+    return true
 end
 
 function DeviceSpoof.hook()
-    if DeviceSpoof.hooked then
-        DeviceSpoof.applyAttributes()
-        return true
-    end
-    if not hookmetamethod or not getrawmetatable then
-        DeviceSpoof.applyAttributes()
-        return false
-    end
-
-    local success = false
-    pcall(function()
-        local mt = getrawmetatable(game)
-        if not mt then return end
-        pcall(function() setreadonly(mt, false) end)
-
-        local oldIndex = mt.__index
-        local oldNamecall = mt.__namecall
-
-        -- cache servicios una vez (no GetService cada index)
-        local UIS = UserInputService
-        local GuiS = game:GetService("GuiService")
-        local VRS = nil
-        pcall(function() VRS = game:GetService("VRService") end)
-
-        local function resolveIndex(self, key)
-            if not config.DeviceSpoofEnabled then
-                return oldIndex(self, key)
-            end
-            -- comparacion barata por identidad
-            if self == UIS and type(key) == "string" and UIS_KEYS[key] then
-                return DeviceSpoof.getPreset()[key]
-            end
-            if self == GuiS and key == "IsTenFootInterface" then
-                return DeviceSpoof.getPreset().TenFoot
-            end
-            if VRS and self == VRS and key == "VREnabled" then
-                return DeviceSpoof.getPreset().VREnabled
-            end
-            return oldIndex(self, key)
-        end
-
-        mt.__index = newcclosure and newcclosure(resolveIndex) or resolveIndex
-
-        local function resolveNamecall(self, ...)
-            local method = getnamecallmethod and getnamecallmethod() or ""
-            if config.DeviceSpoofEnabled then
-                local p = DeviceSpoof.getPreset()
-                if DeviceSpoof.isUIS(self) then
-                    if method == "GetPlatform" then return p.Platform end
-                    if method == "GetLastInputType" then return p.LastInput end
-                    if method == "GetConnectedGamepads" then
-                        if p.GamepadEnabled then
-                            return { Enum.UserInputType.Gamepad1 }
-                        end
-                        return {}
-                    end
-                    if method == "GetStringForKeyCode" then
-                        return oldNamecall(self, ...)
-                    end
-                end
-                if DeviceSpoof.isGuiService(self) and method == "IsTenFootInterface" then
-                    return p.TenFoot
-                end
-                if DeviceSpoof.isVRService(self) and (method == "GetPropertyChangedSignal" or method == "") then
-                    -- fall through
-                end
-                if DeviceSpoof.isVRService(self) and method == "GetUserCFrame" then
-                    return oldNamecall(self, ...)
-                end
-            end
-            return oldNamecall(self, ...)
-        end
-
-        mt.__namecall = newcclosure and newcclosure(resolveNamecall) or resolveNamecall
-
-        pcall(function() setreadonly(mt, true) end)
-        success = true
-        DeviceSpoof.hooked = true
-    end)
-
-    -- refuerzo: hook directo de propiedades via hookfunction si existe
-    pcall(function()
-        if not hookfunction then return end
-        -- no siempre existe; attributes + metamethod suelen bastar
-    end)
-
-    DeviceSpoof.applyAttributes()
-
-    -- keep-alive LENTO (no cada frame = no lag)
-    if DeviceSpoof.conn then pcall(function() DeviceSpoof.conn:Disconnect() end) end
-    DeviceSpoof.conn = nil
-    task.spawn(function()
-        while config.DeviceSpoofEnabled do
-            DeviceSpoof.applyAttributes()
-            task.wait(5)
-        end
-    end)
-
-    return success
+    return DeviceSpoof.apply()
 end
 
 function DeviceSpoof.enable()
     config.DeviceSpoofEnabled = true
-    local ok = true
-    if not DeviceSpoof.hooked then
-        ok = DeviceSpoof.hook()
-    else
-        DeviceSpoof.applyAttributes()
+    local ok = DeviceSpoof.apply()
+    local label = tostring(config.DeviceSpoofType or "Mobile")
+    if ok then
+        Notify("Device", label .. " → " .. DeviceSpoof.getControlName())
     end
-    local p = DeviceSpoof.getPreset()
-    Notify("Device", "Spoof → " .. p.label .. (ok and " (hook OK)" or " (atributos; executor sin hookmetamethod)"))
 end
 
 function DeviceSpoof.disable()
     config.DeviceSpoofEnabled = false
-    if DeviceSpoof.conn then
-        pcall(function() DeviceSpoof.conn:Disconnect() end)
-        DeviceSpoof.conn = nil
-    end
+    -- volver a PC/MouseKeyboard al desactivar
     pcall(function()
-        LocalPlayer:SetAttribute("Device", nil)
-        LocalPlayer:SetAttribute("Platform", nil)
-        LocalPlayer:SetAttribute("InputType", nil)
-        LocalPlayer:SetAttribute("IsMobile", nil)
-        LocalPlayer:SetAttribute("IsVR", nil)
-        LocalPlayer:SetAttribute("IsConsole", nil)
+        local remote = DeviceSpoof.getRemote()
+        if remote then
+            remote:FireServer("MouseKeyboard")
+        end
     end)
-    Notify("Device", "OFF (hook queda hasta rejoin)")
+    Notify("Device", "OFF")
+end
+
+-- Spoof refresh helpers
+function Spoof.getMyName()
+    if config.SpoofMyName and config.SpoofMyNameValue and config.SpoofMyNameValue ~= "" then
+        return tostring(config.SpoofMyNameValue)
+    end
+    return LocalPlayer.Name
+end
+function Spoof.getMyDisplay()
+    if config.SpoofMyDisplayName and config.SpoofMyDisplayValue and config.SpoofMyDisplayValue ~= "" then
+        return tostring(config.SpoofMyDisplayValue)
+    end
+    if config.SpoofMyName and config.SpoofMyNameValue and config.SpoofMyNameValue ~= "" then
+        return tostring(config.SpoofMyNameValue)
+    end
+    return LocalPlayer.DisplayName
+end
+function Spoof.getMyUser()
+    if config.SpoofMyUserValue and config.SpoofMyUserValue ~= "" then
+        return tostring(config.SpoofMyUserValue):gsub("^@", "")
+    end
+    return Spoof.getMyName()
+end
+
+function Spoof.refreshLocal()
+    if not config.SpoofEnabled then return end
+    local fake = Spoof.getMyDisplay()
+    local char = LocalPlayer.Character
+    if char then Spoof.applyNametags(char, fake) end
+    if config.SpoofProfileUI then
+        pcall(function()
+            if type(Spoof.scanPlayerGui) == "function" then
+                Spoof.scanPlayerGui()
+            end
+        end)
+    end
+end
+
+function Spoof.refreshAll()
+    Spoof.refreshLocal()
+end
+
+-- Stats text spoof (solo labels locales del LocalPlayer UI)
+function StartAllSpoofs()
+    if config.DeviceSpoofEnabled then
+        pcall(function() DeviceSpoof.enable() end)
+    end
+    if config.SpoofEnabled then
+        pcall(Spoof.refreshLocal)
+    end
+end
+
+function StopAllSpoofs()
+    if config.DeviceSpoofEnabled == false then
+        pcall(function() DeviceSpoof.disable() end)
+    end
 end
 
 function Spoof.getName(plr)
@@ -5198,34 +5129,64 @@ silentTarget = function()
     local cam = workspace.CurrentCamera
     if not cam then return nil end
     local center = cam.ViewportSize / 2
-    local fov = math.max(tonumber(config.SilentFOV) or 2000, 50)
+    local fov = math.max(tonumber(config.SilentFOV) or 300, 20)
     local bestHead, bestDist = nil, fov
     local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local myPos = myRoot and myRoot.Position or cam.CFrame.Position
 
-    function tryHead(char)
+    local function wallClear(fromPos, toPos, ignoreChar)
+        if not config.SilentWallCheck and not config.SilentVisibleCheck then return true end
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        local ignore = { LocalPlayer.Character }
+        if ignoreChar then table.insert(ignore, ignoreChar) end
+        params.FilterDescendantsInstances = ignore
+        local hit = workspace:Raycast(fromPos, toPos - fromPos, params)
+        if not hit then return true end
+        return hit.Instance and ignoreChar and hit.Instance:IsDescendantOf(ignoreChar)
+    end
+
+    local function getHitPart(char)
+        if not char then return nil end
+        -- Kicia/Rivals: HitboxHead = daño critico real
+        if config.SilentUseHitboxHead ~= false then
+            local hb = char:FindFirstChild("HitboxHead")
+                or char:FindFirstChild("HitboxHeadSmall")
+            if hb then return hb end
+        end
+        local want = config.SilentHitPart or "Head"
+        return char:FindFirstChild(want)
+            or char:FindFirstChild("Head")
+            or char:FindFirstChild("HitboxBody")
+    end
+
+    local function tryPart(char)
         if not char or char == myChar then return end
         local hum = char:FindFirstChildOfClass("Humanoid")
         if not hum or hum.Health <= 0 then return end
-        local head = char:FindFirstChild("Head")
-        if not head then return end
-        local sp, onScreen = cam:WorldToViewportPoint(head.Position)
+        local part = getHitPart(char)
+        if not part then return end
+        local sp, onScreen = cam:WorldToViewportPoint(part.Position)
         if sp.Z <= 0 then return end
         local d = (Vector2.new(sp.X, sp.Y) - Vector2.new(center.X, center.Y)).Magnitude
-        if not onScreen and d > fov then return end
-        if d < bestDist then bestDist, bestHead = d, head end
+        if d > fov then return end
+        if not wallClear(myPos, part.Position, char) then return end
+        if d < bestDist then bestDist, bestHead = d, part end
     end
 
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer then continue end
         if config.SilentTeamCheck and IsEnemy and not IsEnemy(plr) then continue end
-        tryHead(plr.Character)
+        if config.SilentTeamCheck and IsSameTeam and IsSameTeam(plr) then continue end
+        tryPart(plr.Character)
     end
     pcall(function()
         for _, entity in ipairs(game:GetService("CollectionService"):GetTagged("Entity")) do
             local plr = Players:GetPlayerFromCharacter(entity)
             if plr == LocalPlayer then continue end
             if plr and config.SilentTeamCheck and IsEnemy and not IsEnemy(plr) then continue end
-            tryHead(entity)
+            tryPart(entity)
         end
     end)
     return bestHead
@@ -5240,42 +5201,101 @@ function silentPredictPos(head, origin)
     if not root then return pos end
     local vel = Vector3.zero
     pcall(function() vel = root.AssemblyLinearVelocity end)
-    -- ignorar micro movimiento / ruido
-    if vel.Magnitude < 8 then return pos end
-    -- solo horizontal (Y del salto no leadear tanto)
-    local vFlat = Vector3.new(vel.X, vel.Y * 0.25, vel.Z)
-    local t = math.clamp(tonumber(config.SilentPredictAmount) or 0.06, 0, 0.25)
+    if vel.Magnitude < 4 then return pos end
+    local vFlat = Vector3.new(vel.X, vel.Y * 0.35, vel.Z)
+    local t = math.clamp(tonumber(config.SilentPredictAmount) or 0.08, 0, 0.35)
     if origin then
         local dist = (pos - origin).Magnitude
-        -- lead corto segun distancia (no full flight time)
-        t = t + math.clamp(dist / 2500, 0, 0.05)
+        t = t + math.clamp(dist / 2200, 0, 0.08)
     end
     return pos + vFlat * t
 end
 
-silentCFD = function(origin, head)
-    if not util or not head or not origin then return nil end
-    local targetPos = silentPredictPos(head, origin)
-    -- un poco ARRIBA de la head (evita pecho)
-    local up = tonumber(config.SilentHeadOffsetY) or 0.35
-    targetPos = targetPos + Vector3.new(0, up, 0)
-    local aimCF = CFrame.lookAt(origin, targetPos)
-    local targetCF = head.CFrame
-    local d = {}
-    d[utf8.char(1)] = {
-        [utf8.char(0)] = util:EncodeCFrame(aimCF),
-        [utf8.char(1)] = util:EncodeCFrame(targetCF),
-        [utf8.char(2)] = head,
-        [utf8.char(3)] = util:EncodeCFrame(targetCF:ToObjectSpace(CFrame.new(targetPos))),
+
+-- ==================== SILENT AIM (metodo Kiciahook v3) ====================
+-- Mutar Args["\1"] in-place, conservar origen del tiro, HitboxHead + object-space raycast
+
+local function kiciaEncodeCF(cf)
+    if not cf then return nil end
+    if util and util.EncodeCFrame then
+        local ok, enc = pcall(function() return util:EncodeCFrame(cf) end)
+        if ok and enc ~= nil then return enc end
+    end
+    local rx, ry, rz = cf:ToOrientation()
+    return {
+        [utf8.char(0)] = cf.X,
+        [utf8.char(1)] = cf.Y,
+        [utf8.char(2)] = cf.Z,
+        [utf8.char(3)] = rx,
+        [utf8.char(4)] = ry,
+        [utf8.char(5)] = rz,
     }
-    return d
 end
 
--- SOLO StartShooting real (no numbers, no enums random → no rompe ammo)
+local function kiciaDecodeCF(t)
+    if type(t) ~= "table" then return nil end
+    if util and util.DecodeCFrame then
+        local ok, cf = pcall(function() return util:DecodeCFrame(t) end)
+        if ok and typeof(cf) == "CFrame" then return cf end
+    end
+    local x = t[utf8.char(0)] or t[0]
+    local y = t[utf8.char(1)] or t[1]
+    local z = t[utf8.char(2)] or t[2]
+    local rx = t[utf8.char(3)] or t[3]
+    local ry = t[utf8.char(4)] or t[4]
+    local rz = t[utf8.char(5)] or t[5]
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return nil end
+    rx = type(rx) == "number" and rx or 0
+    ry = type(ry) == "number" and ry or 0
+    rz = type(rz) == "number" and rz or 0
+    return CFrame.new(x, y, z) * CFrame.fromOrientation(rx, ry, rz)
+end
+
+-- cO de Kicia: raycast Include solo al hitbox → PointToObjectSpace
+local function kiciaObjectSpace(origin, hitbox, aimPos)
+    if not origin or not hitbox or not aimPos then return nil end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Include
+    params.FilterDescendantsInstances = { hitbox }
+    local hit = workspace:Raycast(origin, aimPos - origin, params)
+    if not hit then
+        -- fallback: punto en superficie / centro
+        local ok, closest = pcall(function() return hitbox:GetClosestPointOnSurface(origin) end)
+        if ok and closest then
+            local os = hitbox.CFrame:PointToObjectSpace(closest)
+            if os ~= Vector3.zero then return os end
+        end
+        return hitbox.CFrame:PointToObjectSpace(aimPos)
+    end
+    local os = hitbox.CFrame:PointToObjectSpace(hit.Position)
+    if os == Vector3.zero then return nil end
+    return os
+end
+
+silentCFD = function(origin, head)
+    -- fallback completo si no hay packet original
+    if not head or not origin then return nil end
+    local aimPos = head.Position
+    local os = kiciaObjectSpace(origin, head, aimPos) or Vector3.new(0, 0, 0)
+    return {
+        [utf8.char(1)] = {
+            [utf8.char(0)] = kiciaEncodeCF(CFrame.lookAt(origin, aimPos)),
+            [utf8.char(1)] = kiciaEncodeCF(head.CFrame),
+            [utf8.char(2)] = head,
+            [utf8.char(3)] = kiciaEncodeCF(CFrame.new(os)),
+        }
+    }
+end
+
 function silentIsStartShooting(enumVal)
-    if enumVal == nil or not enum then return false end
-    local ok, shoot = pcall(function() return enum:ToEnum("StartShooting") end)
-    if ok and shoot ~= nil and enumVal == shoot then return true end
+    if enumVal == nil then return false end
+    if enum then
+        local ok, shoot = pcall(function() return enum:ToEnum("StartShooting") end)
+        if ok and shoot ~= nil and enumVal == shoot then return true end
+    end
+    if type(enumVal) == "string" and string.find(string.lower(enumVal), "startshoot", 1, true) then
+        return true
+    end
     return false
 end
 
@@ -5290,73 +5310,122 @@ StartSilentAim = function()
         return
     end
 
-    -- Force ADS helper (sniper) — no tocar cooldowns ni ammo
-    pcall(function()
-        local ok, gun = pcall(require, LocalPlayer.PlayerScripts.Modules.ItemTypes.Gun)
-        if ok and gun and gun.IsFullyAiming then
-            gun.IsFullyAiming = function() return true end
-        end
-    end)
+    getgenv()._ShakoSilentState = getgenv()._ShakoSilentState or {
+        locked = nil, lockedAt = 0, lastSwitch = 0,
+    }
+    local SState = getgenv()._ShakoSilentState
 
-    function patchCamdata(camdata)
-        local t = silentTarget()
-        if not t or not util then return camdata end -- sin target: NO tocar (ammo/hits normales)
-        local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not root then return camdata end
-        local built = silentCFD(root.Position, t)
-        if not built then return camdata end
-        -- merge: conservar el resto del packet, solo reemplazar entry de aim
-        if type(camdata) ~= "table" then
-            return built
-        end
-        local out = {}
-        for k, v in pairs(camdata) do out[k] = v end
-        for k, v in pairs(built) do out[k] = v end
-        return out
+    if config.SilentForceAiming then
+        pcall(function()
+            local ok, gun = pcall(require, LocalPlayer.PlayerScripts.Modules.ItemTypes.Gun)
+            if ok and gun and gun.IsFullyAiming then
+                gun.IsFullyAiming = function() return true end
+            end
+        end)
     end
 
-    -- Raycast: redirigir direccion SOLO si hay head target (no tocar maxDist agresivo)
-    pcall(function()
-        if silentOldRaycast then return end
-        if not GameplayUtility then
-            pcall(function() GameplayUtility = require(RS.Modules.GameplayUtility) end)
+    local function getSilentPart()
+        local t = silentTarget()
+        if not t then
+            SState.locked = nil
+            return nil
         end
-        if GameplayUtility and GameplayUtility.GetEntitiesFromRaycast then
-            silentOldRaycast = GameplayUtility.GetEntitiesFromRaycast
-            GameplayUtility.GetEntitiesFromRaycast = function(self, envID, params, origin, dir, maxDist, ...)
-                if config.SilentAimEnabled then
-                    local t = silentTarget()
-                    if t and origin and typeof(origin) == "Vector3" then
-                        local aimPos = silentPredictPos(t, origin) + Vector3.new(0, tonumber(config.SilentHeadOffsetY) or 0.35, 0)
-                        local to = aimPos - origin
-                        if to.Magnitude > 0.05 then
-                            dir = to.Unit
-                            if type(maxDist) == "number" and to.Magnitude > maxDist then
-                                maxDist = to.Magnitude + 2
-                            end
-                        end
-                    end
-                end
-                return silentOldRaycast(self, envID, params, origin, dir, maxDist, ...)
+        local now = tick()
+        local switchDelay = tonumber(config.SilentSwitchDelay) or 0
+        local react = tonumber(config.SilentReactionTime) or 0
+        if SState.locked and SState.locked.Parent and switchDelay > 0 then
+            if (now - (SState.lastSwitch or 0)) < switchDelay then
+                t = SState.locked
             end
         end
-    end)
+        if t ~= SState.locked then
+            SState.locked = t
+            SState.lockedAt = now
+            SState.lastSwitch = now
+        end
+        if react > 0 and (now - (SState.lockedAt or 0)) < react then
+            return nil
+        end
+        return t
+    end
+
+    -- METODO KICIA: mutar entry in-place, conservar origin del packet
+    local function patchCamdata(camdata)
+        if config.SilentManipulate == false then return camdata end
+        local chance = tonumber(config.SilentActivationChance) or 100
+        if chance < 100 and math.random() > (chance / 100) then return camdata end
+
+        local ok, result = pcall(function()
+            local hitbox = getSilentPart()
+            if not hitbox then return camdata end
+            if type(camdata) ~= "table" then return camdata end
+
+            local key = utf8.char(1)
+            local entry = camdata[key]
+            if type(entry) ~= "table" then
+                -- packet raro: construir completo
+                local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not root then return camdata end
+                return silentCFD(root.Position, hitbox) or camdata
+            end
+
+            local aim0 = kiciaDecodeCF(entry[utf8.char(0)])
+            local aim1 = kiciaDecodeCF(entry[utf8.char(1)])
+            local originPos
+            if aim0 then
+                originPos = aim0.Position -- Kicia: conserva origen del tiro
+            else
+                local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                originPos = root and root.Position
+            end
+            if not originPos then return camdata end
+
+            local targetPos = hitbox.Position
+            -- Head offset minimo
+            local up = tonumber(config.SilentHeadOffsetY) or 0
+            if up ~= 0 then
+                targetPos = targetPos + Vector3.new(0, up, 0)
+            end
+            if config.SilentPredict then
+                local pred = silentPredictPos(hitbox, originPos)
+                targetPos = Vector3.new(pred.X, targetPos.Y, pred.Z)
+            end
+
+            local os = kiciaObjectSpace(originPos, hitbox, targetPos)
+            if not os then return camdata end -- sin object-space valido = no tocar (ammo OK)
+
+            -- mutar in-place (Kicia)
+            entry[utf8.char(0)] = kiciaEncodeCF(CFrame.lookAt(originPos, targetPos))
+            if aim1 then
+                entry[utf8.char(1)] = kiciaEncodeCF(CFrame.lookAt(aim1.Position, targetPos))
+            else
+                entry[utf8.char(1)] = kiciaEncodeCF(hitbox.CFrame)
+            end
+            entry[utf8.char(2)] = hitbox
+            entry[utf8.char(3)] = kiciaEncodeCF(CFrame.new(os))
+            return camdata
+        end)
+        if ok and result ~= nil then return result end
+        return camdata
+    end
+
+    -- Sin hook de raycast agresivo (Kicia no lo usa asi en silent)
+    -- Solo FireServer / namecall
 
     local UseItem
     pcall(function()
         UseItem = RS.Remotes.Replication.Fighter.UseItem
     end)
 
-    -- Un solo hook limpio: solo StartShooting + solo si hay target
     if UseItem and hookfunction and not silentOldFire then
         pcall(function()
             silentOldFire = hookfunction(UseItem.FireServer, newcclosure(function(self, objID, enumVal, camdata, extra, ...)
                 if config.SilentAimEnabled and silentIsStartShooting(enumVal) then
-                    local patched = patchCamdata(camdata)
-                    -- si patch fallo, mandar original (no romper tiro)
-                    if patched ~= nil then camdata = patched end
+                    local ok, patched = pcall(patchCamdata, camdata)
+                    if ok and patched ~= nil then
+                        camdata = patched
+                    end
                 end
-                -- SIEMPRE llamar original → ammo + hits se procesan normal
                 return silentOldFire(self, objID, enumVal, camdata, extra, ...)
             end))
         end)
@@ -5373,7 +5442,8 @@ StartSilentAim = function()
                         local n = select("#", ...)
                         local args = {...}
                         if silentIsStartShooting(args[2]) then
-                            args[3] = patchCamdata(args[3])
+                            local ok, patched = pcall(patchCamdata, args[3])
+                            if ok and patched ~= nil then args[3] = patched end
                             return silentOldNamecall(self, table.unpack(args, 1, n))
                         end
                     end
@@ -5385,9 +5455,9 @@ StartSilentAim = function()
 
     silentHooked = true
     config.SilentAimEnabled = true
-    config.SilentHitPart = "Head"
-    Notify("Silent", "ON · head · ammo OK")
+    Notify("Silent", "ON · Kicia method")
 end
+
 
 StopSilentAim = function()
     config.SilentAimEnabled = false
@@ -9636,782 +9706,530 @@ end)()
 -- Box + skeleton body-sized, outline, health, name, distance, tracers, chams
 getgenv()._ShakoESPPro = getgenv()._ShakoESPPro or { Targets = {}, bound = false }
 
-local function espProCreate(class, props, parent)
-    local inst = Instance.new(class)
-    for k, v in pairs(props or {}) do
-        inst[k] = v
-    end
-    if parent then inst.Parent = parent end
-    return inst
+-- ==================== KICIA-STYLE PLAYER ESP ====================
+local ESP_BONES = {
+    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
+}
+
+local function espC(class, props, parent)
+    local o = Instance.new(class)
+    for k, v in pairs(props or {}) do o[k] = v end
+    if parent then o.Parent = parent end
+    return o
 end
 
-local function espProSetLine(frame, a, b, thickness, color)
-    local delta = b - a
-    frame.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
-    frame.Size = UDim2.fromOffset(math.max(delta.Magnitude, 1), thickness)
-    frame.Rotation = math.deg(math.atan2(delta.Y, delta.X))
-    frame.BackgroundColor3 = color
-    frame.Visible = true
-end
-
-local function espProNewLine(parent, z)
-    return espProCreate("Frame", {
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        BorderSizePixel = 0,
-        ZIndex = z or 3,
-        Visible = false,
-    }, parent)
-end
-
-local function espProStrokeBox(parent, color, z, thickness)
-    local f = espProCreate("Frame", {
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = z or 3,
-        Visible = false,
-    }, parent)
-    local s = espProCreate("UIStroke", {
-        Color = color,
-        Thickness = thickness or 2,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        LineJoinMode = Enum.LineJoinMode.Miter,
-    }, f)
-    return f, s
-end
-
-local function espProNewCircle(parent, color, thickness, z)
-    local f = espProCreate("Frame", {
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = z or 3,
-        Visible = false,
-    }, parent)
-    espProCreate("UICorner", { CornerRadius = UDim.new(1, 0) }, f)
-    local s = espProCreate("UIStroke", {
-        Color = color,
-        Thickness = thickness or 2,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-    }, f)
-    return f, s
-end
-
-local function espProNewLabel(parent, textSize, anchor, color)
-    return espProCreate("TextLabel", {
-        BackgroundTransparency = 1,
-        Font = Enum.Font.GothamBold,
-        TextSize = textSize or 13,
-        TextColor3 = color or Color3.new(1, 1, 1),
-        TextStrokeColor3 = Color3.new(0, 0, 0),
-        TextStrokeTransparency = 0,
-        AnchorPoint = anchor or Vector2.new(0.5, 1),
-        Size = UDim2.fromOffset(220, (textSize or 13) + 2),
-        Text = "",
-        ZIndex = 6,
-        Visible = false,
-    }, parent)
-end
-
-local function espProExtents(cf, size)
-    local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
-    local sx, sy, sz = size.X / 2, size.Y / 2, size.Z / 2
-    local ex = math.abs(r00) * sx + math.abs(r01) * sy + math.abs(r02) * sz
-    local ey = math.abs(r10) * sx + math.abs(r11) * sy + math.abs(r12) * sz
-    local ez = math.abs(r20) * sx + math.abs(r21) * sy + math.abs(r22) * sz
-    return x - ex, y - ey, z - ez, x + ex, y + ey, z + ez
-end
-
-local function espProColor()
-    local c = config.ESPBoxColor or config.ESPColor
-    if typeof(c) == "Color3" then return c end
-    local map = {
-        Red = Color3.fromRGB(255, 40, 40),
-        White = Color3.fromRGB(255, 255, 255),
-        Pink = Color3.fromRGB(255, 105, 180),
-        Green = Color3.fromRGB(80, 255, 120),
-        Cyan = Color3.fromRGB(80, 220, 255),
-        Yellow = Color3.fromRGB(255, 220, 80),
-        Purple = Color3.fromRGB(180, 100, 255),
-        Orange = Color3.fromRGB(255, 150, 40),
-        Blue = Color3.fromRGB(60, 140, 255),
-        Magenta = Color3.fromRGB(255, 80, 220),
-    }
-    return map[tostring(c or "Red")] or Color3.fromRGB(255, 40, 40)
-end
-
-local function espProGetGuiParent()
+local function espGuiParent()
     local p
-    pcall(function() if gethui then p = gethui() end end)
+    pcall(function() p = gethui and gethui() end)
     if not p then pcall(function() p = game:GetService("CoreGui") end) end
-    if not p then
-        p = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui")
-    end
+    if not p then p = LocalPlayer:FindFirstChild("PlayerGui") end
     return p
 end
 
--- Pares de huesos fijos (R15 + R6) — no depende de Motor6D
-local ESP_BONE_PAIRS = {
-    -- R15
-    { "Head", "UpperTorso" },
-    { "UpperTorso", "LowerTorso" },
-    { "UpperTorso", "LeftUpperArm" },
-    { "LeftUpperArm", "LeftLowerArm" },
-    { "LeftLowerArm", "LeftHand" },
-    { "UpperTorso", "RightUpperArm" },
-    { "RightUpperArm", "RightLowerArm" },
-    { "RightLowerArm", "RightHand" },
-    { "LowerTorso", "LeftUpperLeg" },
-    { "LeftUpperLeg", "LeftLowerLeg" },
-    { "LeftLowerLeg", "LeftFoot" },
-    { "LowerTorso", "RightUpperLeg" },
-    { "RightUpperLeg", "RightLowerLeg" },
-    { "RightLowerLeg", "RightFoot" },
-    -- R6
-    { "Head", "Torso" },
-    { "Torso", "Left Arm" },
-    { "Torso", "Right Arm" },
-    { "Torso", "Left Leg" },
-    { "Torso", "Right Leg" },
-}
-
-local function espProRebuild(e, now)
-    e.dirty = false
-    e.lastBuild = now
-    local model = e.model
-    local parts = {}
-    for _, c in ipairs(model:GetDescendants()) do
-        if c:IsA("BasePart") then
-            parts[#parts + 1] = c
-        end
-    end
-    e.parts = parts
-    local head = model:FindFirstChild("Head")
-    e.head = (head and head:IsA("BasePart")) and head or nil
-    e.hrp = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart or parts[1]
-
-    -- construir lista de {partA, partB}
-    local bones = {}
-    local seen = {}
-    for _, pair in ipairs(ESP_BONE_PAIRS) do
-        local a = model:FindFirstChild(pair[1])
-        local b = model:FindFirstChild(pair[2])
-        if a and b and a:IsA("BasePart") and b:IsA("BasePart") then
-            local key = pair[1] .. "|" .. pair[2]
-            if not seen[key] then
-                seen[key] = true
-                bones[#bones + 1] = { partA = a, partB = b }
-            end
-        end
-    end
-    -- fallback: si no hay pares (rig raro), unir HRP-Head
-    if #bones == 0 and e.hrp and e.head then
-        bones[1] = { partA = e.head, partB = e.hrp }
-    end
-    e.bones = bones
+local function espLine(parent, thick, z)
+    local f = espC("Frame", {
+        BorderSizePixel = 0, BackgroundColor3 = Color3.new(1,1,1),
+        AnchorPoint = Vector2.new(0.5, 0.5), ZIndex = z or 3, Visible = false,
+    }, parent)
+    return f
 end
 
-local function espProCornerPair(parent)
-    -- 8 corner segments: outer black + inner color (UE style)
-    local corners = { out = {}, main = {} }
-    for n = 1, 8 do
-        corners.out[n] = espProNewLine(parent, 2)
-        corners.main[n] = espProNewLine(parent, 3)
-    end
-    return corners
+local function espSetLine(f, a, b, thick, col, vis)
+    if not f then return end
+    if not vis or not a or not b then f.Visible = false return end
+    local d = b - a
+    local m = d.Magnitude
+    if m < 0.5 then f.Visible = false return end
+    f.Visible = true
+    f.BackgroundColor3 = col or Color3.new(1,1,1)
+    f.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+    f.Size = UDim2.fromOffset(math.max(m, 1), thick or 1)
+    f.Rotation = math.deg(math.atan2(d.Y, d.X))
 end
 
-local function espProDrawCornerBox(corners, x, y, w, h, color, thickness, outline)
-    -- L-corners: TL, TR, BL, BR  (2 lines each = 8)
-    local t = math.max(tonumber(thickness) or 2, 1)
-    local len = math.clamp(math.floor(math.min(w, h) * 0.28), 6, 18)
-    local pts = {
-        -- TL horizontal + vertical
-        { Vector2.new(x, y), Vector2.new(x + len, y) },
-        { Vector2.new(x, y), Vector2.new(x, y + len) },
-        -- TR
-        { Vector2.new(x + w, y), Vector2.new(x + w - len, y) },
-        { Vector2.new(x + w, y), Vector2.new(x + w, y + len) },
-        -- BL
-        { Vector2.new(x, y + h), Vector2.new(x + len, y + h) },
-        { Vector2.new(x, y + h), Vector2.new(x, y + h - len) },
-        -- BR
-        { Vector2.new(x + w, y + h), Vector2.new(x + w - len, y + h) },
-        { Vector2.new(x + w, y + h), Vector2.new(x + w, y + h - len) },
-    }
-    for i, seg in ipairs(pts) do
-        local out = corners.out[i]
-        local main = corners.main[i]
-        if outline then
-            espProSetLine(out, seg[1], seg[2], t + 2, Color3.new(0, 0, 0))
-        elseif out then
-            out.Visible = false
-        end
-        espProSetLine(main, seg[1], seg[2], t, color)
-    end
+local function espLabel(parent, size, anchor)
+    local t = espC("TextLabel", {
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+        Font = Enum.Font.GothamBold, TextSize = size or 13,
+        TextColor3 = Color3.new(1,1,1), TextStrokeTransparency = 0.4,
+        TextStrokeColor3 = Color3.new(0,0,0), AnchorPoint = anchor or Vector2.new(0.5, 0.5),
+        TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6, Visible = false,
+        Size = UDim2.fromOffset(200, 18),
+    }, parent)
+    return t
 end
 
-local function espProHideCorners(corners)
-    if not corners then return end
-    for i = 1, 8 do
-        if corners.out[i] then corners.out[i].Visible = false end
-        if corners.main[i] then corners.main[i].Visible = false end
-    end
+local function espEnemyColor()
+    local c = config.ESPBoxColor or config.ESPEnemyColor
+    if typeof(c) == "Color3" then return c end
+    return Color3.fromRGB(255, 255, 255)
 end
 
-local function espProCreateTarget(model, hum, layer)
-    local e = {
-        model = model,
-        hum = hum,
-        parts = {},
-        bones = {},
-        jp = {},
-        skOut = {},
-        skMain = {},
-        conns = {},
-        dirty = true,
-        lastBuild = 0,
-        shown = false,
-    }
-    local root = espProCreate("Frame", {
-        Name = model.Name,
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        Size = UDim2.fromScale(1, 1),
-        Visible = false,
-    }, layer)
+local function espTeamColor()
+    local c = config.ESPTeamColor
+    if typeof(c) == "Color3" then return c end
+    return Color3.fromRGB(80, 180, 255)
+end
+
+local function espIsTeam(plr)
+    if not plr or plr == LocalPlayer then return false end
+    if IsSameTeam then
+        local ok, v = pcall(IsSameTeam, plr)
+        if ok and v then return true end
+    end
+    if LocalPlayer.Team and plr.Team and LocalPlayer.Team == plr.Team then return true end
+    return false
+end
+
+local function espWorldTo(pos)
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+    local v, on = cam:WorldToViewportPoint(pos)
+    if v.Z <= 0 then return nil, false end
+    return Vector2.new(v.X, v.Y), on, v.Z
+end
+
+local function espMakeTarget(model, hum, layer)
+    local e = { model = model, hum = hum, conns = {}, bones = {}, cham = nil }
+    local root = espC("Folder", { Name = model.Name }, layer)
     e.root = root
 
-    -- soft fill (UE-like low opacity)
-    e.fill = espProCreate("Frame", { BorderSizePixel = 0, ZIndex = 1, Visible = false }, root)
-    espProCreate("UIGradient", {
-        Rotation = 90,
-        Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.72),
-            NumberSequenceKeypoint.new(1, 0.92),
-        }),
-    }, e.fill)
+    -- box 4 sides + corners
+    e.box = {}
+    for i = 1, 4 do e.box[i] = espLine(root, 2, 3) end
+    e.corners = {}
+    for i = 1, 8 do e.corners[i] = espLine(root, 2, 4) end
+    e.fill = espC("Frame", { BorderSizePixel = 0, BackgroundTransparency = 0.8, ZIndex = 1, Visible = false }, root)
 
-    -- full box (optional style)
-    e.boxOut = espProStrokeBox(root, Color3.new(0, 0, 0), 2, 1)
-    e.boxIn = espProStrokeBox(root, Color3.new(0, 0, 0), 2, 1)
-    e.box, e.boxS = espProStrokeBox(root, espProColor(), 3, 1.5)
+    -- health
+    e.hpBG = espC("Frame", { BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 0.2, BorderSizePixel = 0, ZIndex = 4, Visible = false }, root)
+    e.hpFill = espC("Frame", { BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(0, 255, 100), ZIndex = 5, Visible = false }, root)
+    e.hpNum = espLabel(root, 11, Vector2.new(1, 0.5))
 
-    -- corner brackets (UE default)
-    e.corners = espProCornerPair(root)
+    -- texts
+    e.name = espLabel(root, 14, Vector2.new(0.5, 1))
+    e.dist = espLabel(root, 12, Vector2.new(0.5, 0))
+    e.weapon = espLabel(root, 11, Vector2.new(0.5, 0))
+    e.rank = espLabel(root, 11, Vector2.new(0.5, 0))
 
-    -- health bar pro
-    e.hpBG = espProCreate("Frame", {
-        BackgroundColor3 = Color3.new(0, 0, 0),
-        BackgroundTransparency = 0.15,
-        BorderSizePixel = 0,
-        ZIndex = 4,
-        Visible = false,
-    }, root)
-    e.hpFill = espProCreate("Frame", { BorderSizePixel = 0, ZIndex = 5, Visible = false }, root)
-    e.hpText = espProNewLabel(root, 11, Vector2.new(1, 0.5))
-    e.hpText.TextXAlignment = Enum.TextXAlignment.Right
-    e.hpText.Font = Enum.Font.GothamBold
+    -- tracer
+    e.trOut = espLine(root, 3, 2)
+    e.trMain = espLine(root, 2, 3)
 
-    -- name / dist UE style
-    e.name = espProNewLabel(root, 14, Vector2.new(0.5, 1))
-    e.name.Font = Enum.Font.GothamBold
-    e.dist = espProNewLabel(root, 12, Vector2.new(0.5, 0), Color3.fromRGB(210, 210, 220))
-    e.dist.Font = Enum.Font.Gotham
+    -- head marker
+    e.head = espC("Frame", { BorderSizePixel = 0, BackgroundTransparency = 1, ZIndex = 7, Visible = false, AnchorPoint = Vector2.new(0.5, 0.5) }, root)
+    e.headL1 = espLine(e.head, 2, 8)
+    e.headL2 = espLine(e.head, 2, 8)
+    e.headCircle = espC("Frame", { BorderSizePixel = 0, BackgroundTransparency = 1, ZIndex = 8, Visible = false, AnchorPoint = Vector2.new(0.5, 0.5) }, e.head)
+    espC("UICorner", { CornerRadius = UDim.new(1, 0) }, e.headCircle)
+    espC("UIStroke", { Thickness = 1.5, Color = Color3.new(1,1,1) }, e.headCircle)
 
-    -- weapon line
-    e.weapon = espProNewLabel(root, 11, Vector2.new(0.5, 0), Color3.fromRGB(180, 180, 190))
-    e.weapon.Font = Enum.Font.Gotham
+    -- skeleton lines
+    for i = 1, #ESP_BONES do
+        e.bones[i] = espLine(root, 1, 3)
+        e.bones[i + #ESP_BONES] = espLine(root, 2, 2) -- outline under
+    end
 
-    e.trOut = espProNewLine(root, 2)
-    e.trMain = espProNewLine(root, 3)
-    e.headOut = espProNewCircle(root, Color3.new(0, 0, 0), 3, 2)
-    e.headMain, e.headMainS = espProNewCircle(root, espProColor(), 1.5, 3)
-
-    local function markDirty() e.dirty = true end
-    e.conns[#e.conns + 1] = model.DescendantAdded:Connect(markDirty)
-    e.conns[#e.conns + 1] = model.DescendantRemoving:Connect(markDirty)
     return e
 end
 
-local function espProRemove(model)
+local function espDestroyTarget(model)
     local S = getgenv()._ShakoESPPro
     local e = S.Targets[model]
     if not e then return end
     S.Targets[model] = nil
-    for _, c in ipairs(e.conns) do pcall(function() c:Disconnect() end) end
-    if e.hl then pcall(function() e.hl:Destroy() end) end
+    for _, c in ipairs(e.conns or {}) do pcall(function() c:Disconnect() end) end
+    if e.cham then pcall(function() e.cham:Destroy() end) end
     if e.root then pcall(function() e.root:Destroy() end) end
 end
 
-local function espProHide(e)
-    if e.shown then
-        e.shown = false
-        e.root.Visible = false
+local function espGetWeapon(model, plr)
+    local tool = model:FindFirstChildOfClass("Tool")
+    if tool then return tool.Name end
+    if plr then
+        local bp = plr:FindFirstChild("Backpack")
+        -- equipped via character only for held
     end
-    if e.hl and e.hl.Enabled then
-        e.hl.Enabled = false
-    end
-    pcall(function() espProHideCorners(e.corners) end)
+    return nil
 end
 
-local function espProGetLines(e, i)
-    local out, main = e.skOut[i], e.skMain[i]
-    if not out then
-        out = espProNewLine(e.root, 2)
-        main = espProNewLine(e.root, 3)
-        e.skOut[i], e.skMain[i] = out, main
+local function espUpdateOne(e, dt)
+    local model = e.model
+    local hum = e.hum
+    if not model or not model.Parent or not hum or not hum.Parent or hum.Health <= 0 then
+        return false
     end
-    return out, main
-end
+    local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("UpperTorso") or model.PrimaryPart
+    local head = model:FindFirstChild("Head")
+    if not hrp then return false end
 
-local function espProJoint2D(e, m, cam)
-    local v = e.jp[m]
-    if v == nil then
-        local p1 = m.Part1
-        if p1 and p1.Parent then
-            local sp = cam:WorldToViewportPoint((p1.CFrame * m.C1).Position)
-            v = sp.Z > 0 and Vector2.new(sp.X, sp.Y) or false
-        else
-            v = false
-        end
-        e.jp[m] = v
+    local plr = Players:GetPlayerFromCharacter(model)
+    local isTeam = plr and espIsTeam(plr)
+    if config.ESPTeamCheck and isTeam then
+        e.root.Parent = nil
+        return true
     end
-    return v
-end
-
-local function espProDraw(e, camPos, color, vp, now, cam)
-    local model, hum = e.model, e.hum
-    if not config.ESPEnabled or model == LocalPlayer.Character or not hum.Parent or hum.Health <= 0 then
-        return espProHide(e)
-    end
-    if type(isESPKeyActive) == "function" and not isESPKeyActive() then
-        return espProHide(e)
+    if not e.root.Parent then
+        local S = getgenv()._ShakoESPPro
+        e.root.Parent = S.layer
     end
 
-    if not e.player then
-        e.player = Players:GetPlayerFromCharacter(model)
-    end
-    -- Solo jugadores por defecto (Rivals)
-    if not e.player and not config.ESPIncludeNPCs then
-        return espProHide(e)
-    end
-    if config.ESPTeamCheck and e.player and e.player.Team and LocalPlayer.Team and e.player.Team == LocalPlayer.Team then
-        return espProHide(e)
-    end
+    local col = isTeam and espTeamColor() or espEnemyColor()
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local dist = myRoot and (hrp.Position - myRoot.Position).Magnitude or 0
 
-    if e.dirty and now - (e.lastBuild or 0) > 0.25 then
-        espProRebuild(e, now)
-    end
-
-    local hrp = e.hrp
-    if not hrp or not hrp.Parent then
-        return espProHide(e)
-    end
-
-    local dist = (hrp.Position - camPos).Magnitude
-    local maxDist = (config.ESPInfiniteRange and 1e9) or (tonumber(config.ESPMaxDistance) or tonumber(config.ESPMaxDist) or 1500)
-    if dist > maxDist then
-        return espProHide(e)
-    end
-
-    if config.ESPUseTeamColor and e.player and e.player.Team then
-        color = e.player.TeamColor.Color
-    end
-    if config.ESPRainbow then
-        color = Color3.fromHSV((now * 0.25) % 1, 0.85, 1)
-    end
-
-    -- AABB body parts
-    local x0, y0, z0 = math.huge, math.huge, math.huge
-    local x1, y1, z1 = -math.huge, -math.huge, -math.huge
-    local n = 0
-    for _, p in ipairs(e.parts) do
-        if p.Parent then
-            local a, b, c, d, f, g = espProExtents(p.CFrame, p.Size)
-            x0, y0, z0 = math.min(x0, a), math.min(y0, b), math.min(z0, c)
-            x1, y1, z1 = math.max(x1, d), math.max(y1, f), math.max(z1, g)
-            n += 1
-        end
-    end
-    if n == 0 then return espProHide(e) end
-
-    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
-    for i = 0, 7 do
-        local px = (i % 2 == 0) and x0 or x1
-        local py = (math.floor(i / 2) % 2 == 0) and y0 or y1
-        local pz = (i >= 4) and z0 or z1
-        local sp = cam:WorldToViewportPoint(Vector3.new(px, py, pz))
-        if sp.Z <= 0 then return espProHide(e) end
-        minX, maxX = math.min(minX, sp.X), math.max(maxX, sp.X)
-        minY, maxY = math.min(minY, sp.Y), math.max(maxY, sp.Y)
-    end
-    if maxX < 0 or minX > vp.X or maxY < 0 or minY > vp.Y then
-        return espProHide(e)
-    end
-
-    if not e.shown then
-        e.shown = true
-        e.root.Visible = true
-    end
-
-    local bx, by = math.floor(minX), math.floor(minY)
-    local bw = math.max(math.floor(maxX - minX), 4)
-    local bh = math.max(math.floor(maxY - minY), 6)
-
-    local showBox = config.ESPShowBox ~= false and config.ESPBox ~= false
-    -- treat nil as true for box/skeleton when ESP on - use explicit flags
-    showBox = config.ESPShowBox == true or config.ESPBox == true
-    local showSkel = config.ESPSkeleton == true
-    local showName = config.ESPShowName == true
-    local showDist = config.ESPShowDist == true
-    local showHP = config.ESPShowHP == true
-    local showTracers = config.ESPTracers == true
-    local showChams = config.ESPChams == true or config.ESPGlow == true
-    local boxOutline = config.ESPOutline ~= false
-    local skelOutline = config.ESPOutline ~= false
-    local boxFill = config.ESPFilledBox == true
-
-    -- BOX (UE style: Corner by default, Full optional)
-    local boxStyle = tostring(config.ESPBoxStyle or "Corner")
-    local th = tonumber(config.ESPBoxThickness) or 1.5
-    if not showBox then
-        e.box.Visible = false
-        e.boxOut.Visible = false
-        e.boxIn.Visible = false
-        espProHideCorners(e.corners)
+    -- 2D bounds from head + feet
+    local topPos = head and (head.Position + Vector3.new(0, 0.35, 0)) or (hrp.Position + Vector3.new(0, 2, 0))
+    local botPos = hrp.Position - Vector3.new(0, 3, 0)
+    local top, onT = espWorldTo(topPos)
+    local bot, onB = espWorldTo(botPos)
+    local mid, onM = espWorldTo(hrp.Position)
+    if not top or not bot then
+        for _, c in ipairs(e.box) do c.Visible = false end
+        for _, c in ipairs(e.corners) do c.Visible = false end
         e.fill.Visible = false
-    elseif boxStyle == "Full" or boxStyle == "Full Box" then
-        espProHideCorners(e.corners)
-        e.box.Visible = true
-        e.boxOut.Visible = boxOutline
-        e.boxIn.Visible = boxOutline
-        e.box.Position = UDim2.fromOffset(bx, by)
-        e.box.Size = UDim2.fromOffset(bw, bh)
-        if e.boxS then e.boxS.Color = color; e.boxS.Thickness = th end
-        if boxOutline then
-            e.boxOut.Position = UDim2.fromOffset(bx - 2, by - 2)
-            e.boxOut.Size = UDim2.fromOffset(bw + 4, bh + 4)
-            e.boxIn.Position = UDim2.fromOffset(bx + 1, by + 1)
-            e.boxIn.Size = UDim2.fromOffset(math.max(bw - 2, 0), math.max(bh - 2, 0))
-        end
-    else
-        -- Corner brackets (Unnamed style)
-        e.box.Visible = false
-        e.boxOut.Visible = false
-        e.boxIn.Visible = false
-        espProDrawCornerBox(e.corners, bx, by, bw, bh, color, th, boxOutline)
-    end
-
-    e.fill.Visible = boxFill and showBox
-    if boxFill and showBox then
-        e.fill.Position = UDim2.fromOffset(bx, by)
-        e.fill.Size = UDim2.fromOffset(bw, bh)
-        e.fill.BackgroundColor3 = color
-        e.fill.BackgroundTransparency = 0.82
-    end
-
-    -- SKELETON (part-to-part, full body)
-    if showSkel then
-        local used = 0
-        local th = tonumber(config.ESPSkeletonThickness) or 1.5
-        for i, bone in ipairs(e.bones) do
-            local out, main = espProGetLines(e, i)
-            local pa, pb = bone.partA, bone.partB
-            local A, B = nil, nil
-            if pa and pa.Parent and pb and pb.Parent then
-                local sa, oa = cam:WorldToViewportPoint(pa.Position)
-                local sb, ob = cam:WorldToViewportPoint(pb.Position)
-                if sa.Z > 0 and sb.Z > 0 then
-                    A = Vector2.new(sa.X, sa.Y)
-                    B = Vector2.new(sb.X, sb.Y)
-                end
-            end
-            if A and B and (A - B).Magnitude > 1 then
-                if skelOutline then
-                    espProSetLine(out, A, B, th + 2, Color3.new(0, 0, 0))
-                else
-                    out.Visible = false
-                end
-                espProSetLine(main, A, B, th, color)
-            else
-                out.Visible = false
-                main.Visible = false
-            end
-            used = i
-        end
-        for i = used + 1, #e.skMain do
-            e.skOut[i].Visible = false
-            e.skMain[i].Visible = false
-        end
-        -- head circle
-        local head = e.head
-        local showHead = false
-        if head and head.Parent then
-            local sp = cam:WorldToViewportPoint(head.Position)
-            if sp.Z > 0 then
-                local scale = vp.Y / (2 * math.tan(math.rad(cam.FieldOfView) / 2) * sp.Z)
-                local r = math.max(math.floor(head.Size.Y * 0.55 * scale), 3)
-                local pos = UDim2.fromOffset(math.floor(sp.X), math.floor(sp.Y))
-                e.headMain.Position = pos
-                e.headMain.Size = UDim2.fromOffset(r * 2, r * 2)
-                if e.headMainS then e.headMainS.Color = color end
-                e.headOut.Position = pos
-                e.headOut.Size = UDim2.fromOffset(math.max(r * 2 - 2, 1), math.max(r * 2 - 2, 1))
-                showHead = true
-            end
-        end
-        e.headMain.Visible = showHead
-        e.headOut.Visible = showHead and skelOutline
-        e.skDrawn = true
-    elseif e.skDrawn then
-        e.skDrawn = false
-        for i = 1, #e.skMain do
-            e.skOut[i].Visible = false
-            e.skMain[i].Visible = false
-        end
-        e.headMain.Visible = false
-        e.headOut.Visible = false
-    end
-
-    -- NAME (UE)
-    e.name.Visible = showName
-    if showName then
-        local text = e.player and e.player.DisplayName or model.Name
-        if e.name.Text ~= text then e.name.Text = text end
-        e.name.TextColor3 = Color3.fromRGB(255, 255, 255)
-        e.name.TextStrokeTransparency = 0
-        e.name.TextSize = tonumber(config.ESPNameSize) or 14
-        e.name.Position = UDim2.fromOffset(bx + bw / 2, by - 6)
-    end
-
-    -- DIST + weapon line
-    e.dist.Visible = showDist
-    if showDist then
-        local text = string.format("%dm", math.floor(dist))
-        if e.dist.Text ~= text then e.dist.Text = text end
-        e.dist.TextColor3 = Color3.fromRGB(200, 200, 210)
-        e.dist.Position = UDim2.fromOffset(bx + bw / 2, by + bh + 3)
-    end
-    if e.weapon then
-        local showWep = config.ESPShowWeapon == true
-        e.weapon.Visible = showWep
-        if showWep then
-            local wepName = ""
-            pcall(function()
-                local tool = model:FindFirstChildOfClass("Tool")
-                if tool then wepName = tool.Name end
-            end)
-            e.weapon.Text = wepName
-            e.weapon.Position = UDim2.fromOffset(bx + bw / 2, by + bh + (showDist and 16 or 3))
-            e.weapon.Visible = wepName ~= ""
-        end
-    end
-
-    -- HEALTH
-    e.hpBG.Visible = showHP
-    e.hpFill.Visible = showHP
-    e.hpText.Visible = showHP and config.ESPShowHPText == true
-    if showHP then
-        local ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-        local fh = math.max(math.floor(bh * ratio), 1)
-        local barW = tonumber(config.ESPBarWidth) or 4
-        e.hpBG.Position = UDim2.fromOffset(bx - (barW + 4), by - 1)
-        e.hpBG.Size = UDim2.fromOffset(barW + 2, bh + 2)
-        e.hpFill.Position = UDim2.fromOffset(bx - (barW + 3), by + bh - fh)
-        e.hpFill.Size = UDim2.fromOffset(barW, fh)
-        e.hpFill.BackgroundColor3 = Color3.fromHSV(ratio * 0.33, 0.9, 1)
-        if config.ESPShowHPText then
-            local t = tostring(math.floor(hum.Health))
-            if e.hpText.Text ~= t then e.hpText.Text = t end
-            e.hpText.Position = UDim2.fromOffset(bx - (barW + 7), by + bh - fh)
-        end
-    end
-
-    -- TRACERS
-    if showTracers then
-        local origin = Vector2.new(vp.X / 2, vp.Y)
-        local fromMode = tostring(config.ESPTracerFrom or "Bottom")
-        if fromMode == "Center" then origin = Vector2.new(vp.X / 2, vp.Y / 2)
-        elseif fromMode == "Mouse" then
-            local m = UserInputService:GetMouseLocation()
-            origin = Vector2.new(m.X, m.Y)
-        end
-        local target = Vector2.new(bx + bw / 2, by + bh)
-        espProSetLine(e.trOut, origin, target, 3, Color3.new(0, 0, 0))
-        espProSetLine(e.trMain, origin, target, 1, color)
-    else
-        e.trOut.Visible = false
+        e.name.Visible = false
+        e.dist.Visible = false
+        e.weapon.Visible = false
+        e.hpBG.Visible = false
+        e.hpFill.Visible = false
+        e.hpNum.Visible = false
         e.trMain.Visible = false
+        e.trOut.Visible = false
+        e.head.Visible = false
+        for _, b in ipairs(e.bones) do b.Visible = false end
+        return true
     end
 
-    -- CHAMS
-    if showChams then
-        if not e.hl then
-            e.hl = espProCreate("Highlight", {
-                DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-                FillTransparency = tonumber(config.ESPChamsFill) or 0.6,
-                OutlineTransparency = 0,
-                Adornee = model,
-            }, model)
-        end
-        e.hl.FillColor = color
-        e.hl.OutlineColor = color:Lerp(Color3.new(1, 1, 1), 0.5)
-        e.hl.Enabled = true
-    elseif e.hl then
-        e.hl.Enabled = false
+    local h = math.abs(bot.Y - top.Y)
+    local w = h * 0.55
+    local cx = (top.X + bot.X) / 2
+    local topY, botY = math.min(top.Y, bot.Y), math.max(top.Y, bot.Y)
+    local left, right = cx - w / 2, cx + w / 2
+    local tl, tr = Vector2.new(left, topY), Vector2.new(right, topY)
+    local bl, br = Vector2.new(left, botY), Vector2.new(right, botY)
+
+    local showBox = config.ESPBox ~= false and config.ESPShowBox ~= false
+    local style = tostring(config.ESPBoxStyle or "Full")
+    local thick = tonumber(config.ESPBoxThickness) or 1.5
+
+    -- full box
+    local full = showBox and (style == "Full" or style == "Full Box")
+    espSetLine(e.box[1], tl, tr, thick, col, full)
+    espSetLine(e.box[2], tr, br, thick, col, full)
+    espSetLine(e.box[3], br, bl, thick, col, full)
+    espSetLine(e.box[4], bl, tl, thick, col, full)
+
+    -- corner style
+    local corner = showBox and (style == "Corner" or style == "Corners" or config.ESPBoxBrackets)
+    local cl = math.max(w * 0.25, 6)
+    if corner then
+        espSetLine(e.corners[1], tl, Vector2.new(tl.X + cl, tl.Y), thick, col, true)
+        espSetLine(e.corners[2], tl, Vector2.new(tl.X, tl.Y + cl), thick, col, true)
+        espSetLine(e.corners[3], tr, Vector2.new(tr.X - cl, tr.Y), thick, col, true)
+        espSetLine(e.corners[4], tr, Vector2.new(tr.X, tr.Y + cl), thick, col, true)
+        espSetLine(e.corners[5], bl, Vector2.new(bl.X + cl, bl.Y), thick, col, true)
+        espSetLine(e.corners[6], bl, Vector2.new(bl.X, bl.Y - cl), thick, col, true)
+        espSetLine(e.corners[7], br, Vector2.new(br.X - cl, br.Y), thick, col, true)
+        espSetLine(e.corners[8], br, Vector2.new(br.X, br.Y - cl), thick, col, true)
+    else
+        for _, c in ipairs(e.corners) do c.Visible = false end
     end
+
+    -- filled box
+    if config.ESPBoxFill or config.ESPFilledBox then
+        e.fill.Visible = true
+        e.fill.BackgroundColor3 = config.ESPBoxFillColor or col
+        e.fill.BackgroundTransparency = tonumber(config.ESPBoxFillTransparency) or 0.8
+        e.fill.Position = UDim2.fromOffset(left, topY)
+        e.fill.Size = UDim2.fromOffset(w, h)
+    else
+        e.fill.Visible = false
+    end
+
+    -- health bar (always green fill, reactive height)
+    local hpFrac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+    if config.ESPHealthBar ~= false and config.ESPShowHP ~= false then
+        local barW = 3
+        local barX = left - 6
+        e.hpBG.Visible = true
+        e.hpFill.Visible = true
+        e.hpBG.Position = UDim2.fromOffset(barX, topY)
+        e.hpBG.Size = UDim2.fromOffset(barW, h)
+        local fh = h * hpFrac
+        e.hpFill.Position = UDim2.fromOffset(barX, topY + (h - fh))
+        e.hpFill.Size = UDim2.fromOffset(barW, fh)
+        e.hpFill.BackgroundColor3 = Color3.fromRGB(
+            math.floor(255 * (1 - hpFrac)),
+            math.floor(255 * hpFrac),
+            40
+        )
+        if config.ESPHealthNumber then
+            e.hpNum.Visible = true
+            e.hpNum.Text = tostring(math.floor(hum.Health))
+            e.hpNum.Position = UDim2.fromOffset(barX - 2, topY + h / 2)
+            e.hpNum.TextColor3 = Color3.new(1,1,1)
+        else
+            e.hpNum.Visible = false
+        end
+    else
+        e.hpBG.Visible = false
+        e.hpFill.Visible = false
+        e.hpNum.Visible = false
+    end
+
+    -- name
+    if config.ESPName ~= false and config.ESPShowName ~= false then
+        local nm = plr and (config.ESPUseDisplayName and plr.DisplayName or plr.Name) or model.Name
+        e.name.Visible = true
+        e.name.Text = nm
+        e.name.TextColor3 = col
+        e.name.Position = UDim2.fromOffset(cx, topY - 2)
+    else
+        e.name.Visible = false
+    end
+
+    -- distance
+    if config.ESPDistance ~= false and config.ESPShowDist ~= false then
+        e.dist.Visible = true
+        e.dist.Text = string.format("%dm", math.floor(dist))
+        e.dist.TextColor3 = Color3.fromRGB(200, 200, 210)
+        e.dist.Position = UDim2.fromOffset(cx, botY + 2)
+    else
+        e.dist.Visible = false
+    end
+
+    -- held weapon
+    if config.ESPHeldWeapon then
+        local wpn = espGetWeapon(model, plr)
+        if wpn then
+            e.weapon.Visible = true
+            e.weapon.Text = wpn
+            e.weapon.TextColor3 = Color3.fromRGB(180, 180, 190)
+            e.weapon.Position = UDim2.fromOffset(cx, botY + 16)
+        else
+            e.weapon.Visible = false
+        end
+    else
+        e.weapon.Visible = false
+    end
+
+    -- tracer (Kicia: Origin Bottom/Center/Top/Mouse, Target Feet/Head)
+    if config.ESPTracer then
+        local cam = workspace.CurrentCamera
+        local vp = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+        local originMode = config.ESPTracerOrigin or "Bottom"
+        local from
+        if originMode == "Center" then
+            from = vp / 2
+        elseif originMode == "Top" then
+            from = Vector2.new(vp.X / 2, 0)
+        elseif originMode == "Mouse" then
+            local m = UserInputService:GetMouseLocation()
+            from = Vector2.new(m.X, m.Y)
+        else
+            from = Vector2.new(vp.X / 2, vp.Y)
+        end
+        local to = (config.ESPTracerTarget == "Head" and top) or bot
+        local tc = config.ESPTracerColor or col
+        local tt = tonumber(config.ESPTracerThickness) or 1.5
+        if config.ESPTracerOutline then
+            espSetLine(e.trOut, from, to, tt + 2, config.ESPTracerOutlineColor or Color3.new(0,0,0), true)
+        else
+            e.trOut.Visible = false
+        end
+        espSetLine(e.trMain, from, to, tt, tc, true)
+    else
+        e.trMain.Visible = false
+        e.trOut.Visible = false
+    end
+
+    -- head marker
+    if config.ESPHeadMarker and head then
+        local hp, onH = espWorldTo(head.Position)
+        if hp then
+            e.head.Visible = true
+            e.head.Position = UDim2.fromOffset(hp.X, hp.Y)
+            local shape = config.ESPHeadMarkerShape or "Cross"
+            local hs = 8
+            local hc = config.ESPHeadMarkerColor or Color3.fromRGB(255, 80, 80)
+            if shape == "Circle" then
+                e.headL1.Visible = false
+                e.headL2.Visible = false
+                e.headCircle.Visible = true
+                e.headCircle.Size = UDim2.fromOffset(hs * 2, hs * 2)
+                e.headCircle.Position = UDim2.fromOffset(0, 0)
+                local stroke = e.headCircle:FindFirstChildOfClass("UIStroke")
+                if stroke then stroke.Color = hc end
+            else
+                e.headCircle.Visible = false
+                espSetLine(e.headL1, Vector2.new(-hs, 0), Vector2.new(hs, 0), 2, hc, true)
+                -- relative to head frame: lines need parent-local coords via Position of lines inside head
+                e.headL1.Position = UDim2.fromOffset(0, 0)
+                e.headL1.Size = UDim2.fromOffset(hs * 2, 2)
+                e.headL1.Rotation = 0
+                e.headL1.Visible = true
+                e.headL1.BackgroundColor3 = hc
+                e.headL2.Position = UDim2.fromOffset(0, 0)
+                e.headL2.Size = UDim2.fromOffset(hs * 2, 2)
+                e.headL2.Rotation = 90
+                e.headL2.Visible = true
+                e.headL2.BackgroundColor3 = hc
+            end
+        else
+            e.head.Visible = false
+        end
+    else
+        e.head.Visible = false
+    end
+
+    -- skeleton
+    if config.ESPSkeleton then
+        local skCol = config.ESPSkeletonColor or col
+        local skT = tonumber(config.ESPSkeletonThickness) or 1.2
+        for i, pair in ipairs(ESP_BONES) do
+            local a = model:FindFirstChild(pair[1])
+            local b = model:FindFirstChild(pair[2])
+            local pa = a and espWorldTo(a.Position)
+            local pb = b and espWorldTo(b.Position)
+            local outline = e.bones[i + #ESP_BONES]
+            local main = e.bones[i]
+            if pa and pb then
+                espSetLine(outline, pa, pb, skT + 1.5, Color3.new(0,0,0), true)
+                espSetLine(main, pa, pb, skT, skCol, true)
+            else
+                if outline then outline.Visible = false end
+                if main then main.Visible = false end
+            end
+        end
+    else
+        for _, b in ipairs(e.bones) do b.Visible = false end
+    end
+
+    -- chams (Highlight) Kicia style
+    if config.ESPChams or config.ESPChamsEnabled then
+        if not e.cham or not e.cham.Parent then
+            local hl = Instance.new("Highlight")
+            hl.Name = "ShakoChams"
+            hl.Adornee = model
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent = model
+            e.cham = hl
+        end
+        e.cham.FillColor = config.ESPChamsFill or col
+        e.cham.OutlineColor = config.ESPChamsOutline or Color3.fromRGB(100, 0, 0)
+        e.cham.FillTransparency = tonumber(config.ESPChamsFillTransparency) or 0.5
+        e.cham.OutlineTransparency = tonumber(config.ESPChamsOutlineTransparency) or 0.3
+        e.cham.Enabled = true
+    elseif e.cham then
+        e.cham.Enabled = false
+    end
+
+    return true
 end
 
 StartESP = function()
     config.ESPEnabled = true
     config.ESP = true
-    -- defaults on enable if never set
-    if config.ESPShowBox == nil then config.ESPShowBox = true end
     if config.ESPBox == nil then config.ESPBox = true end
     if config.ESPBoxStyle == nil then config.ESPBoxStyle = "Corner" end
-    if not config.ESPMaxPlayers then config.ESPMaxPlayers = 8 end
-    if config.ESPSkeleton == nil then config.ESPSkeleton = true end
-    if config.ESPShowName == nil then config.ESPShowName = true end
-    if config.ESPShowHP == nil then config.ESPShowHP = true end
-    if config.ESPShowDist == nil then config.ESPShowDist = true end
-    if config.ESPOutline == nil then config.ESPOutline = true end
-    if not config.ESPBoxColor then config.ESPBoxColor = Color3.fromRGB(255, 40, 40) end
-    if not config.ESPColor or config.ESPColor == "Pink" or config.ESPColor == "White" then
-        config.ESPColor = "Red"
-    end
+    if not config.ESPMaxPlayers then config.ESPMaxPlayers = 12 end
+    if config.ESPName == nil then config.ESPName = true end
+    if config.ESPDistance == nil then config.ESPDistance = true end
+    if config.ESPHealthBar == nil then config.ESPHealthBar = true end
+    if not config.ESPBoxColor then config.ESPBoxColor = Color3.fromRGB(255, 255, 255) end
 
     local S = getgenv()._ShakoESPPro
-    -- cleanup
-    for model in pairs(S.Targets) do espProRemove(model) end
+    for model in pairs(S.Targets) do espDestroyTarget(model) end
     S.Targets = {}
     if S.layer then pcall(function() S.layer:Destroy() end) end
-    if S.conn then pcall(function() S.conn:Disconnect() end) S.conn = nil end
     if S.addConn then pcall(function() S.addConn:Disconnect() end) S.addConn = nil end
     if S.bound then
         pcall(function() RunService:UnbindFromRenderStep("ShakoESPPro") end)
         S.bound = false
     end
 
-    local parent = espProGetGuiParent()
-    local layer = espProCreate("ScreenGui", {
+    local layer = espC("ScreenGui", {
         Name = "ShakoESPPro",
         ResetOnSpawn = false,
         IgnoreGuiInset = true,
         DisplayOrder = 50,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-    }, parent)
+    }, espGuiParent())
     S.layer = layer
 
-    local function register(hum)
-        if not config.ESPEnabled then return end
-        local model = hum.Parent
-        if not model or not model:IsA("Model") or S.Targets[model] then return end
-        if model == LocalPlayer.Character then return end
-        S.Targets[model] = espProCreateTarget(model, hum, layer)
+    local function register(char)
+        if not config.ESPEnabled or not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 2)
+        if not hum then return end
+        local plr = Players:GetPlayerFromCharacter(char)
+        if plr == LocalPlayer then return end
+        if S.Targets[char] then return end
+        S.Targets[char] = espMakeTarget(char, hum, layer)
     end
 
-    -- jugadores actuales
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            if hum then pcall(register, hum) end
-        end
-    end
-    -- workspace humanoids (optional NPCs)
-    if config.ESPIncludeNPCs then
-        for _, d in ipairs(workspace:GetDescendants()) do
-            if d:IsA("Humanoid") then pcall(register, d) end
+            pcall(register, plr.Character)
         end
     end
 
-    S.addConn = workspace.DescendantAdded:Connect(function(d)
-        if d:IsA("Humanoid") then
-            task.defer(function() pcall(register, d) end)
-        end
+    S.addConn = Players.PlayerAdded:Connect(function(plr)
+        plr.CharacterAdded:Connect(function(char)
+            task.defer(function() pcall(register, char) end)
+        end)
     end)
-
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             plr.CharacterAdded:Connect(function(char)
-                task.wait(0.3)
-                if not config.ESPEnabled then return end
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then pcall(register, hum) end
+                task.defer(function() pcall(register, char) end)
             end)
         end
     end
-    Players.PlayerAdded:Connect(function(plr)
-        plr.CharacterAdded:Connect(function(char)
-            task.wait(0.3)
-            if not config.ESPEnabled then return end
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then pcall(register, hum) end
-        end)
-    end)
 
     pcall(function()
-        S._espFrame = 0
-        S._sorted = S._sorted or {}
-        S._lastSort = 0
-        RunService:BindToRenderStep("ShakoESPPro", Enum.RenderPriority.Camera.Value + 1, function()
+        RunService:BindToRenderStep("ShakoESPPro", Enum.RenderPriority.Camera.Value + 1, function(dt)
             if not config.ESPEnabled then return end
-            S._espFrame = (S._espFrame or 0) + 1
-            -- ~20 FPS ESP (menos tirones)
-            if S._espFrame % 3 ~= 0 then return end
-            local cam = workspace.CurrentCamera
-            if not cam then return end
-            local camPos = cam.CFrame.Position
-            local vp = cam.ViewportSize
-            local now = os.clock()
-            local color = espProColor()
-            local maxP = math.clamp(tonumber(config.ESPMaxPlayers) or 8, 1, 25)
-
-            -- reordenar solo cada 0.2s
-            if (now - (S._lastSort or 0)) > 0.2 then
-                S._lastSort = now
-                local list = {}
-                for model, e in pairs(S.Targets) do
-                    if not model.Parent or not e.hum or not e.hum.Parent then
-                        espProRemove(model)
-                    else
-                        local hrp = e.hrp
-                        if not hrp or not hrp.Parent then
-                            hrp = model:FindFirstChild("HumanoidRootPart")
-                            e.hrp = hrp
-                        end
-                        local d = hrp and (hrp.Position - camPos).Magnitude or 1e9
-                        list[#list + 1] = { e = e, dist = d }
-                    end
+            local S = getgenv()._ShakoESPPro
+            local maxP = math.clamp(tonumber(config.ESPMaxPlayers) or 12, 1, 30)
+            local list = {}
+            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            for model, e in pairs(S.Targets) do
+                if not model.Parent then
+                    espDestroyTarget(model)
+                else
+                    local hrp = model:FindFirstChild("HumanoidRootPart")
+                    local d = (myRoot and hrp) and (hrp.Position - myRoot.Position).Magnitude or 99999
+                    list[#list + 1] = { e = e, dist = d }
                 end
-                table.sort(list, function(a, b) return a.dist < b.dist end)
-                S._sorted = list
             end
-
-            local list = S._sorted or {}
+            table.sort(list, function(a, b) return a.dist < b.dist end)
             for i, item in ipairs(list) do
                 if i <= maxP then
-                    pcall(espProDraw, item.e, camPos, color, vp, now, cam)
+                    pcall(espUpdateOne, item.e, dt)
                 else
-                    pcall(espProHide, item.e)
+                    if item.e.root then
+                        for _, ch in ipairs(item.e.root:GetChildren()) do
+                            if ch:IsA("GuiObject") then ch.Visible = false end
+                        end
+                    end
                 end
             end
         end)
     end)
     S.bound = true
-    -- parar otros ESP antiguos si existen
-    pcall(function()
-        if getgenv()._ShakoOldESP and getgenv()._ShakoOldESP.Stop then
-            getgenv()._ShakoOldESP.Stop()
-        end
-    end)
-    Notify("ESP", "ON")
+    Notify("ESP", "ON · Kicia style")
 end
 
 StopESP = function()
     config.ESPEnabled = false
     config.ESP = false
     local S = getgenv()._ShakoESPPro
-    for model in pairs(S.Targets or {}) do espProRemove(model) end
+    for model in pairs(S.Targets or {}) do espDestroyTarget(model) end
     S.Targets = {}
     if S.addConn then pcall(function() S.addConn:Disconnect() end) S.addConn = nil end
     if S.bound then
@@ -10419,17 +10237,9 @@ StopESP = function()
         S.bound = false
     end
     if S.layer then pcall(function() S.layer:Destroy() end) S.layer = nil end
-    -- legacy cleanup
-    pcall(function()
-        if getgenv()._ShakoESP7 then
-            getgenv()._ShakoESP7.on = false
-        end
-        if getgenv()._ShakoLandryESP then
-            getgenv()._ShakoLandryESP.Unloaded = true
-        end
-    end)
     Notify("ESP", "OFF")
 end
+
 
 -- aliases
 _espColor = espProColor
@@ -17555,20 +17365,54 @@ SilentBox:AddDropdown("SilentHitPart", {
     Default = 1,
     Callback = function(v) config.SilentHitPart = v end
 })
+SilentBox:AddToggle("SilentUseHitboxHead", {
+    Text = "Use HitboxHead", Default = true,
+    Callback = function(v) config.SilentUseHitboxHead = v end
+})
 SilentBox:AddSlider("SilentFOV", {
-    Text = "FOV Radius", Default = 300, Min = 50, Max = 5000, Rounding = 0,
+    Text = "FOV Radius", Default = 800, Min = 20, Max = 5000, Rounding = 0,
     Callback = function(v) config.SilentFOV = v end
+})
+SilentBox:AddSlider("SilentActivationChance", {
+    Text = "Activation Chance (%)", Default = 100, Min = 0, Max = 100, Rounding = 0,
+    Callback = function(v) config.SilentActivationChance = v end
+})
+SilentBox:AddSlider("SilentReactionTime", {
+    Text = "Reaction Delay", Default = 0, Min = 0, Max = 2, Rounding = 2,
+    Callback = function(v) config.SilentReactionTime = v end
+})
+SilentBox:AddSlider("SilentSwitchDelay", {
+    Text = "Switch Delay", Default = 0, Min = 0, Max = 2, Rounding = 2,
+    Callback = function(v) config.SilentSwitchDelay = v end
+})
+SilentBox:AddToggle("SilentManipulate", {
+    Text = "Manipulate", Default = true,
+    Callback = function(v) config.SilentManipulate = v end
+})
+SilentBox:AddDropdown("SilentManipulateMode", {
+    Text = "Manipulation Check",
+    Values = {"OnBestTarget", "OnAllTargets"},
+    Default = 1,
+    Callback = function(v) config.SilentManipulateMode = v end
+})
+SilentBox:AddToggle("SilentWallCheck", {
+    Text = "Wall Check", Default = false,
+    Callback = function(v) config.SilentWallCheck = v end
+})
+SilentBox:AddToggle("SilentVisibleCheck", {
+    Text = "Visible Check", Default = false,
+    Callback = function(v) config.SilentVisibleCheck = v end
 })
 SilentBox:AddToggle("SilentPredict", {
     Text = "Predict", Default = false,
     Callback = function(v) config.SilentPredict = v end
 })
 SilentBox:AddSlider("SilentPredictAmount", {
-    Text = "Predict Amount", Default = 0.06, Min = 0, Max = 0.3, Rounding = 2,
+    Text = "Predict Amount", Default = 0.08, Min = 0, Max = 0.35, Rounding = 2,
     Callback = function(v) config.SilentPredictAmount = v end
 })
 SilentBox:AddSlider("SilentHeadOffsetY", {
-    Text = "Head Offset", Default = 0.35, Min = 0, Max = 1.5, Rounding = 2,
+    Text = "Head Offset", Default = 0, Min = 0, Max = 1.5, Rounding = 2,
     Callback = function(v) config.SilentHeadOffsetY = v end
 })
 
@@ -17921,6 +17765,55 @@ MatchBox:AddDropdown("AutoBanWeaponCurrent", {
     end
 })
 MatchBox:AddLabel("Vote/Ban = Duels.Vote · Loadout = PickWeapons")
+
+-- ==================== AUTO QUEUE ====================
+QueueBox = Tabs.Misc:AddLeftGroupbox("auto queue")
+QueueBox:AddToggle("AutoQueueEnabled", {
+    Text = "Enabled",
+    Default = false,
+    Tooltip = "Encola automaticamente al modo seleccionado (MatchmakingController)",
+    Callback = function(v)
+        config.AutoQueueEnabled = v == true
+        if v then
+            task.defer(function()
+                pcall(function()
+                    local mode = tostring(config.AutoQueueMatch or "1v1")
+                    local lp = game:GetService("Players").LocalPlayer
+                    local ps = lp and lp:FindFirstChild("PlayerScripts")
+                    local c = ps and ps:FindFirstChild("Controllers")
+                    local mod = c and c:FindFirstChild("MatchmakingController")
+                    if mod then
+                        local mc = require(mod)
+                        if mc and type(mc.QueueInto) == "function" then
+                            mc:QueueInto(mode)
+                            print("[shako] QueueInto inmediato:", mode)
+                        end
+                    end
+                    local RS = game:GetService("ReplicatedStorage")
+                    local mm = RS:FindFirstChild("Remotes") and RS.Remotes:FindFirstChild("Matchmaking")
+                    local jq = mm and mm:FindFirstChild("JoinQueue")
+                    if jq then
+                        if jq:IsA("RemoteFunction") then jq:InvokeServer(mode)
+                        elseif jq:IsA("RemoteEvent") then jq:FireServer(mode) end
+                        print("[shako] JoinQueue inmediato:", mode)
+                    end
+                end)
+            end)
+            pcall(function()
+                if Library and Library.Notify then Library:Notify("Auto Queue ON · " .. tostring(config.AutoQueueMatch), 2) end
+            end)
+        end
+    end
+})
+QueueBox:AddDropdown("AutoQueueMatch", {
+    Text = "Select Match",
+    Values = {"1v1", "2v2", "3v3", "4v4", "5v5", "2v2_beginner"},
+    Default = 1,
+    Callback = function(v)
+        config.AutoQueueMatch = tostring(v or "1v1")
+    end
+})
+QueueBox:AddLabel("JoinQueue = Matchmaking")
 
 VoidBox = Tabs.Misc:AddLeftGroupbox("void")
 togVoid = VoidBox:AddToggle("VoidSpam", {
@@ -18279,9 +18172,166 @@ togESP = ESPBox:AddToggle("ESPEnabled", {
 bindKey(togESP, "ESPKey", "...")
 
 ESPBox:AddSlider("ESPMaxPlayers", {
-    Text = "Max jugadores", Default = 8, Min = 1, Max = 25, Rounding = 0,
+    Text = "Max Players", Default = 12, Min = 1, Max = 25, Rounding = 0,
     Callback = function(v)
-        config.ESPMaxPlayers = math.clamp(tonumber(v) or 8, 1, 25)
+        config.ESPMaxPlayers = math.clamp(tonumber(v) or 12, 1, 25)
+    end
+})
+ESPBox:AddToggle("ESPBoxT", {
+    Text = "Box", Default = true,
+    Callback = function(v) config.ESPBox = v; config.ESPShowBox = v end
+})
+ESPBox:AddDropdown("ESPBoxStyle", {
+    Text = "Box Style",
+    Values = {"Full", "Corner"},
+    Default = 2,
+    Callback = function(v) config.ESPBoxStyle = v end
+})
+ESPBox:AddToggle("ESPFilledBox", {
+    Text = "Filled Box", Default = false,
+    Callback = function(v) config.ESPFilledBox = v; config.ESPBoxFill = v end
+})
+ESPBox:AddToggle("ESPNameT", {
+    Text = "Name", Default = true,
+    Callback = function(v) config.ESPName = v; config.ESPShowName = v end
+})
+ESPBox:AddToggle("ESPDistT", {
+    Text = "Distance", Default = true,
+    Callback = function(v) config.ESPDistance = v; config.ESPShowDist = v end
+})
+ESPBox:AddToggle("ESPHpBarT", {
+    Text = "Health Bar", Default = true,
+    Callback = function(v) config.ESPHealthBar = v; config.ESPShowHP = v end
+})
+ESPBox:AddToggle("ESPHpNumT", {
+    Text = "Health Number", Default = false,
+    Callback = function(v) config.ESPHealthNumber = v end
+})
+ESPBox:AddToggle("ESPWeaponT", {
+    Text = "Held Weapon", Default = false,
+    Callback = function(v) config.ESPHeldWeapon = v end
+})
+ESPBox:AddToggle("ESPSkeletonT", {
+    Text = "Skeleton", Default = false,
+    Callback = function(v) config.ESPSkeleton = v end
+})
+ESPBox:AddToggle("ESPTracerT", {
+    Text = "Tracer", Default = false,
+    Callback = function(v) config.ESPTracer = v end
+})
+ESPBox:AddDropdown("ESPTracerOrigin", {
+    Text = "Tracer From",
+    Values = {"Bottom", "Center", "Top", "Mouse"},
+    Default = 1,
+    Callback = function(v) config.ESPTracerOrigin = v end
+})
+ESPBox:AddDropdown("ESPTracerTarget", {
+    Text = "Tracer To",
+    Values = {"Feet", "Head"},
+    Default = 1,
+    Callback = function(v) config.ESPTracerTarget = v end
+})
+ESPBox:AddToggle("ESPHeadMarkerT", {
+    Text = "Head Marker", Default = false,
+    Callback = function(v) config.ESPHeadMarker = v end
+})
+ESPBox:AddDropdown("ESPHeadShape", {
+    Text = "Head Shape",
+    Values = {"Cross", "Circle"},
+    Default = 1,
+    Callback = function(v) config.ESPHeadMarkerShape = v end
+})
+ESPBox:AddToggle("ESPChamsT", {
+    Text = "Chams", Default = false,
+    Callback = function(v) config.ESPChams = v; config.ESPChamsEnabled = v end
+})
+ESPBox:AddToggle("ESPTeamCheckT", {
+    Text = "Team Check", Default = false,
+    Callback = function(v) config.ESPTeamCheck = v end
+})
+ESPBox:AddToggle("ESPDisplayNameT", {
+    Text = "Use Display Name", Default = false,
+    Callback = function(v) config.ESPUseDisplayName = v end
+})
+
+-- ==================== VISUALS: SPOOFERS (Kicia) ====================
+local SpoofNameBox = Tabs.Visuals:AddLeftGroupbox("Name Spoof")
+SpoofNameBox:AddToggle("SpoofMaster", {
+    Text = "Enable Spoofers", Default = false,
+    Callback = function(v)
+        config.SpoofEnabled = v
+        if v then StartAllSpoofs() else StopAllSpoofs() end
+    end
+})
+SpoofNameBox:AddToggle("SpoofNameT", {
+    Text = "Name", Default = false,
+    Callback = function(v)
+        config.SpoofMyName = v
+        if v then config.SpoofEnabled = true end
+        pcall(Spoof.refreshLocal)
+    end
+})
+SpoofNameBox:AddInput("SpoofNameVal", {
+    Text = "Name Value",
+    Default = "shako.win",
+    Placeholder = "Name...",
+    Callback = function(v)
+        config.SpoofMyNameValue = tostring(v or "")
+        pcall(Spoof.refreshLocal)
+    end
+})
+SpoofNameBox:AddToggle("SpoofDispT", {
+    Text = "Display Name", Default = false,
+    Callback = function(v)
+        config.SpoofMyDisplayName = v
+        if v then config.SpoofEnabled = true end
+        pcall(Spoof.refreshLocal)
+    end
+})
+SpoofNameBox:AddInput("SpoofDispVal", {
+    Text = "Display Value",
+    Default = "shako.win",
+    Placeholder = "Display...",
+    Callback = function(v)
+        config.SpoofMyDisplayValue = tostring(v or "")
+        pcall(Spoof.refreshLocal)
+    end
+})
+SpoofNameBox:AddInput("SpoofUserVal", {
+    Text = "Username (@)",
+    Default = "",
+    Placeholder = "optional @user",
+    Callback = function(v)
+        config.SpoofMyUserValue = tostring(v or "")
+        pcall(Spoof.refreshLocal)
+    end
+})
+SpoofNameBox:AddToggle("SpoofProfileUIT", {
+    Text = "Profile UI", Default = true,
+    Callback = function(v) config.SpoofProfileUI = v end
+})
+
+local SpoofDeviceBox = Tabs.Visuals:AddLeftGroupbox("Device Spoof")
+SpoofDeviceBox:AddToggle("DeviceSpoofT", {
+    Text = "Device Spoof", Default = false,
+    Callback = function(v)
+        config.DeviceSpoofEnabled = v
+        if v then
+            pcall(function() DeviceSpoof.enable() end)
+        else
+            pcall(function() DeviceSpoof.disable() end)
+        end
+    end
+})
+SpoofDeviceBox:AddDropdown("DeviceSpoofType", {
+    Text = "Platform",
+    Values = {"PC", "Mobile", "Console", "VR"},
+    Default = 2,
+    Callback = function(v)
+        config.DeviceSpoofType = v
+        if config.DeviceSpoofEnabled then
+            pcall(function() DeviceSpoof.enable() end)
+        end
     end
 })
 
@@ -18687,6 +18737,32 @@ CrossBox:AddToggle("DisableGameCrosshair", {
 })
 
 -- ==================== OVERRIDE (Harion) ====================
+
+-- ==================== UNLOCK ALL (Rivals Skinchanger) ====================
+UnlockBox = Tabs.Visual:AddLeftGroupbox("unlock")
+UnlockBox:AddToggle("UnlockAll", {
+    Text = "unlock all",
+    Default = false,
+    Tooltip = "Desbloquea todas las skins/charms/wraps localmente (sin lag)",
+    Callback = function(v)
+        config.UnlockAll = v
+        if v then
+            pcall(function()
+                if type(StartUnlockAll) == "function" then StartUnlockAll() end
+            end)
+        else
+            -- hooks se quedan (seguro); solo deja de forzar owns en runtime si aplica
+            pcall(function()
+                if type(StopUnlockAll) == "function" then StopUnlockAll() end
+            end)
+        end
+        pcall(function()
+            if Library and Library.Notify then
+                Library:Notify(v and "Unlock All ON" or "Unlock All OFF", 2)
+            end
+        end)
+    end
+})
 
 -- ==================== VIEWMODEL (Harion) ====================
 ViewmodelBox = Tabs.Visual:AddLeftGroupbox("viewmodel")
@@ -19798,58 +19874,6 @@ CfgBox:AddButton({
     end
 })
 
-GrokBox = Tabs.Settings:AddRightGroupbox("presets")
-
-GrokBox:AddButton({
-    Text = "Instalar todos los presets",
-    Func = function()
-        local n = Cfg.InstallGrokPresets()
-        Notify("Presets", "installed " .. tostring(n))
-        pcall(RefreshCfg)
-    end
-})
-GrokBox:AddButton({
-    Text = "Load HVH God",
-    Func = function()
-        if Cfg.LoadGrokPreset("HVH God") then
-            Notify("Presets", "HVH God loaded")
-        end
-    end
-})
-GrokBox:AddButton({
-    Text = "Load Anti-UE",
-    Func = function()
-        if Cfg.LoadGrokPreset("Anti-UE") then
-            Notify("Presets", "Anti-UE loaded")
-        end
-    end
-})
-GrokBox:AddButton({
-    Text = "Load FFA Farm",
-    Func = function()
-        if Cfg.LoadGrokPreset("FFA Farm") then
-            Notify("Presets", "FFA Farm loaded")
-        end
-    end
-})
-GrokBox:AddButton({
-    Text = "Load Legit",
-    Func = function()
-        if Cfg.LoadGrokPreset("Legit") then
-            Notify("Presets", "Legit loaded")
-        end
-    end
-})
-GrokBox:AddButton({
-    Text = "Load Visual Only",
-    Func = function()
-        if Cfg.LoadGrokPreset("Visual Only") then
-            Notify("Presets", "Visual Only loaded")
-        end
-    end
-})
-
-
 
 CfgBox:AddButton({
     Text = "Set Auto Load",
@@ -20812,128 +20836,134 @@ do
 end
 
 
--- ==================== SETTINGS: Menu Key + Keybind List (Unnamed style) ====================
+-- ==================== SETTINGS: Menu Key + Keybind List ====================
+-- UELinoria: Library.ToggleKeybind = "F" (string) → cada pulsación hace Library:Toggle()
+-- Modo TOGGLE puro: 1 click abre, 1 click cierra. Sin Hold. Sin handlers extra.
 pcall(function()
     local setBox = nil
     pcall(function()
         setBox = (Tabs.Settings or Tabs.Configs):AddLeftGroupbox("Menu & Keybinds")
     end)
-    if not setBox then return end
+    if not setBox then
+        warn("[shako] No Settings tab")
+        return
+    end
 
-    -- Menu open/close key (se guarda en config)
-    pcall(function()
-        local menuLbl = setBox:AddLabel("Menu Key")
-        menuLbl:AddKeyPicker("MenuKeybind", {
-            Default = tostring(config.MenuKey or "RightShift"),
-            Text = "Menu Key",
-            Mode = "Toggle",
-            Modes = { "Toggle" },
-            SyncToggleState = false,
-            NoUI = false,
-            Callback = function(value)
-                -- value puede ser key name
-                pcall(function()
-                    local name = typeof(value) == "EnumItem" and value.Name or tostring(value)
-                    if name and name ~= "" and name ~= "None" then
-                        config.MenuKey = name
-                    end
-                    local kp = Library.Options.MenuKeybind
-                    Library.ToggleKeybind = kp
-                end)
-            end,
-            ChangedCallback = function(value)
-                pcall(function()
-                    local name = typeof(value) == "EnumItem" and value.Name or tostring(value)
-                    if name and name ~= "" and name ~= "None" then
-                        config.MenuKey = name
-                    end
-                    Library.ToggleKeybind = Library.Options.MenuKeybind
-                end)
-            end,
-        })
-    end)
+    local function applyToggleKey(keyName)
+        keyName = tostring(keyName or ""):gsub("%s+", "")
+        if keyName == "" or keyName == "Unknown" or keyName == "None" then
+            return false
+        end
+        config.MenuKey = keyName
+        getgenv()._ShakoMenuKey = keyName
 
-    -- Forzar que la UI use SOLO MenuKeybind (no RightShift fijo)
-    local function bindMenuKeyToLibrary()
+        -- SOLO string: la lib hace Toggle() en cada press (modo toggle)
+        -- NO dejar KeyPicker: su Mode Hold/Always rompe el menu
         pcall(function()
-            local kp = Library and Library.Options and Library.Options.MenuKeybind
-            if not kp then return end
-            Library.ToggleKeybind = kp
-            -- algunos linoria usan esto:
-            pcall(function() Library.Keybind = kp end)
+            Library.ToggleKeybind = keyName
+        end)
+
+        -- Si Options.MenuKeybind existe, ponerlo en Mode Toggle + Value
+        pcall(function()
+            local opts = Library.Options or getgenv().Options
+            if type(opts) ~= "table" then return end
+            local mk = opts.MenuKeybind or opts.MenuKey
+            if type(mk) ~= "table" then return end
+            mk.Value = keyName
+            mk.Mode = "Toggle"
+            pcall(function() if mk.SetValue then mk:SetValue(keyName) end end)
             pcall(function()
-                local val = kp.Value or kp.Key
-                if typeof(val) == "EnumItem" then
-                    config.MenuKey = val.Name
-                elseif type(val) == "string" and val ~= "" and val ~= "None" then
-                    config.MenuKey = val
-                end
+                if mk.ModeDisplay then mk.ModeDisplay.Text = "Toggle" end
             end)
+            -- NO asignar mk a ToggleKeybind (usamos string)
+        end)
+
+        print("[shako] Menu Key TOGGLE =", keyName)
+        return true
+    end
+
+    local currentKey = tostring(config.MenuKey or getgenv()._ShakoMenuKey or "RightShift"):gsub("%s+", "")
+    if currentKey == "" then currentKey = "RightShift" end
+    applyToggleKey(currentKey)
+
+    local keyLabel = setBox:AddLabel("Menu Key (Toggle): " .. currentKey)
+    local waitingBind = false
+    local bindConn = nil
+
+    local function refreshLabel(name)
+        pcall(function()
+            if keyLabel and keyLabel.SetText then
+                keyLabel:SetText("Menu Key (Toggle): " .. name)
+            end
         end)
     end
-    bindMenuKeyToLibrary()
-    task.defer(bindMenuKeyToLibrary)
-    task.spawn(function()
-        for _ = 1, 20 do
-            task.wait(0.25)
-            bindMenuKeyToLibrary()
-        end
-        while task.wait(1) do
-            bindMenuKeyToLibrary()
-        end
-    end)
 
-    -- Fallback: toggle menu with configured key (not hardcoded RightShift)
-    local menuKeyBusy = false
-    local menuKeyLast = 0
-    UserInputService.InputBegan:Connect(function(input, gpe)
-        if menuKeyBusy then return end
-        if input.UserInputType ~= Enum.UserInputType.Keyboard
-            and input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.MouseButton2
-            and input.UserInputType ~= Enum.UserInputType.MouseButton3 then
-            return
+    setBox:AddLabel("Modo: Toggle · 1 vez abre · 1 vez cierra")
+
+    setBox:AddButton({
+        Text = "Bind Menu Key (click then press key)",
+        Func = function()
+            if waitingBind then return end
+            waitingBind = true
+            pcall(function()
+                if Library and Library.Notify then
+                    Library:Notify("Pulsa la tecla (modo Toggle)...", 3)
+                end
+            end)
+            if bindConn then pcall(function() bindConn:Disconnect() end) bindConn = nil end
+            bindConn = UserInputService.InputBegan:Connect(function(input, gp)
+                if not waitingBind then return end
+                if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                if not input.KeyCode or input.KeyCode == Enum.KeyCode.Unknown then return end
+                local name = input.KeyCode.Name
+                waitingBind = false
+                pcall(function() bindConn:Disconnect() end)
+                bindConn = nil
+                if applyToggleKey(name) then
+                    refreshLabel(name)
+                    pcall(function()
+                        if Library and Library.Notify then
+                            Library:Notify("Toggle menu con: " .. name, 3)
+                        end
+                    end)
+                end
+            end)
+            task.delay(6, function()
+                if waitingBind then
+                    waitingBind = false
+                    if bindConn then pcall(function() bindConn:Disconnect() end) bindConn = nil end
+                end
+            end)
         end
-        local kp = Library and Library.Options and Library.Options.MenuKeybind
-        local keyName = tostring(config.MenuKey or "RightShift")
-        pcall(function()
-            if kp then
-                local val = kp.Value or kp.Key
-                if typeof(val) == "EnumItem" then keyName = val.Name
-                elseif type(val) == "string" and val ~= "" and val ~= "None" and val ~= "..." then
-                    keyName = val
-                end
-            end
-        end)
-        local match = false
-        if input.KeyCode and input.KeyCode.Name == keyName then match = true end
-        if input.UserInputType and input.UserInputType.Name == keyName then match = true end
-        if not match then return end
-        if tick() - menuKeyLast < 0.15 then return end
-        menuKeyLast = tick()
-        menuKeyBusy = true
-        task.delay(0.2, function() menuKeyBusy = false end)
-        pcall(function()
-            if Library then
-                if type(Library.Toggle) == "function" then
-                    Library:Toggle()
-                elseif Library.Toggled ~= nil then
-                    Library.Toggled = not Library.Toggled
-                    if type(Library.SetOpen) == "function" then
-                        Library:SetOpen(Library.Toggled)
-                    elseif type(Library.Open) == "function" and type(Library.Close) == "function" then
-                        if Library.Toggled then Library:Open() else Library:Close() end
-                    end
-                end
-            end
-        end)
+    })
+
+    setBox:AddButton({
+        Text = "Reset → RightShift (Toggle)",
+        Func = function()
+            applyToggleKey("RightShift")
+            refreshLabel("RightShift")
+        end
+    })
+
+    -- Sin InputBegan propio: UELinoria ya hace Toggle() al detectar ToggleKeybind string
+    -- Re-aplicar por si SaveManager pisa
+    task.spawn(function()
+        for _ = 1, 5 do
+            task.wait(1)
+            local k = tostring(getgenv()._ShakoMenuKey or config.MenuKey or "RightShift")
+            pcall(function() Library.ToggleKeybind = k end)
+        end
     end)
 
     setBox:AddToggle("KeybindListEnabled", {
         Text = "Keybind List", Default = true,
         Callback = function(v)
             config.KeybindListEnabled = v
-            pcall(function() getgenv()._ShakoKBList.SetVisible(v) end)
+            pcall(function()
+                if getgenv()._ShakoKBList and getgenv()._ShakoKBList.SetVisible then
+                    getgenv()._ShakoKBList.SetVisible(v)
+                end
+            end)
         end
     })
     setBox:AddToggle("KeybindListOnlyActive", {
@@ -20946,9 +20976,43 @@ pcall(function()
         Text = "Keybind List Transparency", Default = 0.25, Min = 0, Max = 0.9, Rounding = 2,
         Callback = function(v)
             config.KeybindListTransparency = v
-            pcall(function() getgenv()._ShakoKBList.SetTransparency(v) end)
+            pcall(function()
+                if getgenv()._ShakoKBList and getgenv()._ShakoKBList.SetTransparency then
+                    getgenv()._ShakoKBList.SetTransparency(v)
+                end
+            end)
         end
     })
+
+    setBox:AddButton({
+        Text = "Unload Script",
+        Func = function()
+            getgenv()._ShakoFullyUnloaded = true
+            pcall(function()
+                if Library then
+                    Library.Unloaded = true
+                    Library.Toggled = false
+                    if type(Library.Unload) == "function" then Library:Unload() end
+                end
+            end)
+            pcall(function()
+                local cg = game:GetService("CoreGui")
+                for _, g in ipairs(cg:GetChildren()) do
+                    if g:IsA("ScreenGui") then
+                        local n = string.lower(g.Name)
+                        if n:find("linoria") or n:find("obsidian") or n:find("uelinoria") then
+                            g:Destroy()
+                        end
+                    end
+                end
+            end)
+            getgenv().antiSleepy_loaded = false
+            getgenv()._ShakoUIReady = false
+            print("[shako] UNLOADED")
+        end
+    })
+
+    print("[shako] Menu Key TOGGLE mode OK ·", currentKey)
 end)
 
 -- Keybind list GUI (movable, Unnamed style)
@@ -20960,6 +21024,16 @@ pcall(function()
     local parent = gethui and gethui() or game:GetService("CoreGui")
     local gui = Instance.new("ScreenGui")
     gui.Name = "ShakoKeybindList"
+    KB.gui = gui
+    KB.Gui = gui
+    KB.Destroy = function()
+        pcall(function()
+            if KB._render then KB._render:Disconnect() end
+            if KB._conn then KB._conn:Disconnect() end
+        end)
+        pcall(function() if gui and gui.Parent then gui:Destroy() end end)
+        getgenv()._ShakoKBList = nil
+    end
     gui.ResetOnSpawn = false
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.Parent = parent
@@ -22095,17 +22169,642 @@ task.spawn(function()
     print("[shako] Elisium visuals pack OK (isolated scope)")
 end)
 
+
+
+-- ==================== UNLOCK ALL (Rivals Skinchanger - low lag) ====================
+-- Instala hooks UNA sola vez. Sin loops por frame.
+StartUnlockAll, StopUnlockAll = StartUnlockAll, StopUnlockAll
+do
+    local installed = false
+    local enabledFlag = false
+    local equipped, favorites = {}, {}
+    local constructingWeapon, viewingProfile = nil, nil
+    local lastUsedWeapon = nil
+    local origHooks = {}
+
+    local function saveFile()
+        return "shako_win/unlock_skins.json"
+    end
+
+    local function saveConfig()
+        if not writefile then return end
+        pcall(function()
+            local HttpService = game:GetService("HttpService")
+            local configSave = { equipped = {}, favorites = favorites }
+            for weapon, cosmetics in pairs(equipped) do
+                configSave.equipped[weapon] = {}
+                for cosmeticType, cosmeticData in pairs(cosmetics) do
+                    if cosmeticData and cosmeticData.Name then
+                        configSave.equipped[weapon][cosmeticType] = {
+                            name = cosmeticData.Name,
+                            seed = cosmeticData.Seed,
+                            inverted = cosmeticData.Inverted,
+                        }
+                    end
+                end
+            end
+            if makefolder then pcall(makefolder, "shako_win") end
+            writefile(saveFile(), HttpService:JSONEncode(configSave))
+        end)
+    end
+
+    local function loadConfigSkins()
+        if not (readfile and isfile) then return end
+        pcall(function()
+            local path = saveFile()
+            if not isfile(path) then return end
+            local HttpService = game:GetService("HttpService")
+            local data = HttpService:JSONDecode(readfile(path))
+            favorites = data.favorites or {}
+            -- equipped se rehidrata cuando hay CosmeticLibrary
+            getgenv()._ShakoUnlockEquippedRaw = data.equipped or {}
+        end)
+    end
+
+    local function isFinisher(cosmetic)
+        if not cosmetic then return false end
+        local t = cosmetic.Type
+        return t == "Finisher" or t == "Finish" or (t and string.find(string.lower(tostring(t)), "finish"))
+    end
+
+    local function isEmote(cosmetic)
+        if not cosmetic then return false end
+        local t = cosmetic.Type
+        return t == "Dance" or t == "Emote"
+    end
+
+    function StartUnlockAll()
+        enabledFlag = true
+        config.UnlockAll = true
+        if installed then
+            print("[shako] Unlock All already installed")
+            return
+        end
+        installed = true
+        loadConfigSkins()
+
+        local ok, err = pcall(function()
+            local Players = game:GetService("Players")
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local HttpService = game:GetService("HttpService")
+            local player = Players.LocalPlayer
+            local playerScripts = player:WaitForChild("PlayerScripts", 10)
+            if not playerScripts then return end
+            local controllers = playerScripts:WaitForChild("Controllers", 10)
+            if not controllers then return end
+
+            local EnumLibrary = require(ReplicatedStorage.Modules:WaitForChild("EnumLibrary", 10))
+            if EnumLibrary and EnumLibrary.WaitForEnumBuilder then
+                pcall(function() EnumLibrary:WaitForEnumBuilder() end)
+            end
+            local CosmeticLibrary = require(ReplicatedStorage.Modules:WaitForChild("CosmeticLibrary", 10))
+            local ItemLibrary = require(ReplicatedStorage.Modules:WaitForChild("ItemLibrary", 10))
+            local DataController = require(controllers:WaitForChild("PlayerDataController", 10))
+
+            local function cloneCosmetic(name, cosmeticType, options)
+                local base = CosmeticLibrary.Cosmetics[name]
+                if not base then return nil end
+                local data = {}
+                for key, value in pairs(base) do data[key] = value end
+                data.Name = name
+                data.Type = data.Type or cosmeticType
+                data.Seed = data.Seed or math.random(1, 1000000)
+                if EnumLibrary then
+                    local success, enumId = pcall(EnumLibrary.ToEnum, EnumLibrary, name)
+                    if success and enumId then
+                        data.Enum, data.ObjectID = enumId, data.ObjectID or enumId
+                    end
+                end
+                if options then
+                    if options.inverted ~= nil then data.Inverted = options.inverted end
+                    if options.favoritesOnly ~= nil then data.OnlyUseFavorites = options.favoritesOnly end
+                end
+                return data
+            end
+
+            -- rehydrate equipped from disk
+            local raw = getgenv()._ShakoUnlockEquippedRaw
+            if type(raw) == "table" then
+                for weapon, cosmetics in pairs(raw) do
+                    equipped[weapon] = {}
+                    for cosmeticType, cosmeticData in pairs(cosmetics) do
+                        local cloned = cloneCosmetic(cosmeticData.name, cosmeticType, { inverted = cosmeticData.inverted })
+                        if cloned then
+                            cloned.Seed = cosmeticData.seed
+                            equipped[weapon][cosmeticType] = cloned
+                        end
+                    end
+                end
+            end
+
+            -- OwnsCosmetic: report true for all real cosmetics (solo si UnlockAll activo)
+            if not origHooks.OwnsCosmetic then
+                origHooks.OwnsCosmetic = CosmeticLibrary.OwnsCosmetic
+                CosmeticLibrary.OwnsCosmetic = function(self, inventory, name, weapon)
+                    if enabledFlag and name and not tostring(name):find("MISSING_") then
+                        local cosmetic = CosmeticLibrary.Cosmetics[name]
+                        if cosmetic then return true end
+                    end
+                    return origHooks.OwnsCosmetic(self, inventory, name, weapon)
+                end
+            end
+
+            if not origHooks.Get then
+                origHooks.Get = DataController.Get
+                DataController.Get = function(self, key)
+                    local data = origHooks.Get(self, key)
+                    if not enabledFlag then return data end
+                    if key == "CosmeticInventory" then
+                        local proxy = {}
+                        if data then
+                            for k, v in pairs(data) do
+                                local cosmetic = CosmeticLibrary.Cosmetics[k]
+                                if cosmetic then proxy[k] = v end
+                            end
+                        end
+                        return setmetatable(proxy, {
+                            __index = function(_, k)
+                                local cosmetic = CosmeticLibrary.Cosmetics[k]
+                                if cosmetic then return true end
+                                return nil
+                            end,
+                        })
+                    end
+                    if key == "FavoritedCosmetics" then
+                        local result = data and table.clone(data) or {}
+                        for weapon, favs in pairs(favorites) do
+                            result[weapon] = result[weapon] or {}
+                            for name, isFav in pairs(favs) do
+                                local cosmetic = CosmeticLibrary.Cosmetics[name]
+                                if cosmetic then result[weapon][name] = isFav end
+                            end
+                        end
+                        return result
+                    end
+                    return data
+                end
+            end
+
+            if not origHooks.GetWeaponData then
+                origHooks.GetWeaponData = DataController.GetWeaponData
+                DataController.GetWeaponData = function(self, weaponName)
+                    local data = origHooks.GetWeaponData(self, weaponName)
+                    if not data then return nil end
+                    if not enabledFlag then return data end
+                    local merged = {}
+                    for key, value in pairs(data) do merged[key] = value end
+                    merged.Name = weaponName
+                    if equipped[weaponName] then
+                        for cosmeticType, cosmeticData in pairs(equipped[weaponName]) do
+                            if cosmeticType ~= "Dances" then
+                                merged[cosmeticType] = cosmeticData
+                            end
+                        end
+                    end
+                    return merged
+                end
+            end
+
+            local FighterController
+            pcall(function()
+                FighterController = require(controllers:WaitForChild("FighterController", 10))
+            end)
+
+            if hookmetamethod and not origHooks.namecall then
+                local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                local dataRemotes = remotes and remotes:FindFirstChild("Data")
+                local equipRemote = dataRemotes and dataRemotes:FindFirstChild("EquipCosmetic")
+                local favoriteRemote = dataRemotes and dataRemotes:FindFirstChild("FavoriteCosmetic")
+                local replicationRemotes = remotes and remotes:FindFirstChild("Replication")
+                local fighterRemotes = replicationRemotes and replicationRemotes:FindFirstChild("Fighter")
+                local useItemRemote = fighterRemotes and fighterRemotes:FindFirstChild("UseItem")
+
+                if equipRemote then
+                    local oldNamecall
+                    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                        if getnamecallmethod() ~= "FireServer" then
+                            return oldNamecall(self, ...)
+                        end
+                        if not enabledFlag then
+                            return oldNamecall(self, ...)
+                        end
+                        local args = { ... }
+                        if useItemRemote and self == useItemRemote then
+                            local objectID = args[1]
+                            if FighterController then
+                                pcall(function()
+                                    local fighter = FighterController:GetFighter(player)
+                                    if fighter and fighter.Items then
+                                        for _, item in pairs(fighter.Items) do
+                                            if item:Get("ObjectID") == objectID then
+                                                lastUsedWeapon = item.Name
+                                                break
+                                            end
+                                        end
+                                    end
+                                end)
+                            end
+                        end
+                        if self == equipRemote then
+                            local weaponName, cosmeticType, cosmeticName, options = args[1], args[2], args[3], args[4] or {}
+                            local cosmetic = CosmeticLibrary.Cosmetics[cosmeticName]
+                            if cosmetic and (isFinisher(cosmetic) or isEmote(cosmetic)) then
+                                if isEmote(cosmetic) then
+                                    equipped.Dances = equipped.Dances or {}
+                                    if not cosmeticName or cosmeticName == "None" or cosmeticName == "" then
+                                        equipped.Dances[cosmeticType] = nil
+                                    else
+                                        local cloned = cloneCosmetic(cosmeticName, cosmeticType, {
+                                            inverted = options.IsInverted,
+                                            favoritesOnly = options.OnlyUseFavorites,
+                                        })
+                                        if cloned then equipped.Dances[cosmeticType] = cloned end
+                                    end
+                                else
+                                    equipped[weaponName] = equipped[weaponName] or {}
+                                    if not cosmeticName or cosmeticName == "None" or cosmeticName == "" then
+                                        equipped[weaponName][cosmeticType] = nil
+                                        if not next(equipped[weaponName]) then equipped[weaponName] = nil end
+                                    else
+                                        local cloned = cloneCosmetic(cosmeticName, cosmeticType, {
+                                            inverted = options.IsInverted,
+                                            favoritesOnly = options.OnlyUseFavorites,
+                                        })
+                                        if cloned then equipped[weaponName][cosmeticType] = cloned end
+                                    end
+                                end
+                                saveConfig()
+                                return oldNamecall(self, ...)
+                            end
+                            if cosmeticName and cosmeticName ~= "None" and cosmeticName ~= "" then
+                                local inventory = DataController:Get("CosmeticInventory")
+                                if inventory and rawget(inventory, cosmeticName) then
+                                    return oldNamecall(self, ...)
+                                end
+                            end
+                            equipped[weaponName] = equipped[weaponName] or {}
+                            if not cosmeticName or cosmeticName == "None" or cosmeticName == "" then
+                                equipped[weaponName][cosmeticType] = nil
+                                if not next(equipped[weaponName]) then equipped[weaponName] = nil end
+                            else
+                                local cloned = cloneCosmetic(cosmeticName, cosmeticType, {
+                                    inverted = options.IsInverted,
+                                    favoritesOnly = options.OnlyUseFavorites,
+                                })
+                                if cloned then equipped[weaponName][cosmeticType] = cloned end
+                            end
+                            task.defer(function()
+                                pcall(function() DataController.CurrentData:Replicate("WeaponInventory") end)
+                                task.wait(0.2)
+                                saveConfig()
+                            end)
+                            return
+                        end
+                        if self == favoriteRemote then
+                            local cosmetic = CosmeticLibrary.Cosmetics[args[2]]
+                            if cosmetic then
+                                favorites[args[1]] = favorites[args[1]] or {}
+                                favorites[args[1]][args[2]] = args[3] or nil
+                                saveConfig()
+                                task.spawn(function()
+                                    pcall(function() DataController.CurrentData:Replicate("FavoritedCosmetics") end)
+                                end)
+                            end
+                            return
+                        end
+                        return oldNamecall(self, ...)
+                    end)
+                    origHooks.namecall = true
+                end
+            end
+
+            -- ViewModel skin apply
+            local ClientItem
+            pcall(function()
+                ClientItem = require(player.PlayerScripts.Modules.ClientReplicatedClasses.ClientFighter.ClientItem)
+            end)
+            if ClientItem and ClientItem._CreateViewModel and not origHooks.CreateVM then
+                origHooks.CreateVM = ClientItem._CreateViewModel
+                ClientItem._CreateViewModel = function(self, viewmodelRef)
+                    local weaponName = self.Name
+                    local weaponPlayer = self.ClientFighter and self.ClientFighter.Player
+                    constructingWeapon = (weaponPlayer == player) and weaponName or nil
+                    if enabledFlag and weaponPlayer == player and equipped[weaponName] and viewmodelRef then
+                        local dataKey = self:ToEnum("Data")
+                        local skinKey = self:ToEnum("Skin")
+                        local charmKey = self:ToEnum("Charm")
+                        local wrapKey = self:ToEnum("Wrap")
+                        local nameKey = self:ToEnum("Name")
+                        local data = viewmodelRef[dataKey] or viewmodelRef.Data
+                        if data then
+                            if equipped[weaponName].Skin then
+                                data[skinKey or "Skin"] = equipped[weaponName].Skin
+                                data[nameKey or "Name"] = equipped[weaponName].Skin.Name
+                            end
+                            if equipped[weaponName].Charm then
+                                data[charmKey or "Charm"] = equipped[weaponName].Charm
+                            end
+                            if equipped[weaponName].Wrap then
+                                data[wrapKey or "Wrap"] = equipped[weaponName].Wrap
+                            end
+                        end
+                    end
+                    local result = origHooks.CreateVM(self, viewmodelRef)
+                    constructingWeapon = nil
+                    return result
+                end
+            end
+
+            local viewModelModule = player.PlayerScripts.Modules.ClientReplicatedClasses.ClientFighter.ClientItem:FindFirstChild("ClientViewModel")
+            if viewModelModule then
+                local ClientViewModel = require(viewModelModule)
+                if ClientViewModel and ClientViewModel.new and not origHooks.VMNew then
+                    origHooks.VMNew = ClientViewModel.new
+                    ClientViewModel.new = function(replicatedData, clientItem)
+                        local weaponPlayer = clientItem.ClientFighter and clientItem.ClientFighter.Player
+                        local weaponName = constructingWeapon or clientItem.Name
+                        if enabledFlag and weaponPlayer == player and equipped[weaponName] then
+                            local ReplicatedClass = require(ReplicatedStorage.Modules.ReplicatedClass)
+                            local dataKey = ReplicatedClass:ToEnum("Data")
+                            replicatedData[dataKey] = replicatedData[dataKey] or {}
+                            local cosmetics = equipped[weaponName]
+                            if cosmetics.Skin then
+                                replicatedData[dataKey][ReplicatedClass:ToEnum("Skin")] = cosmetics.Skin
+                            end
+                            if cosmetics.Charm then
+                                replicatedData[dataKey][ReplicatedClass:ToEnum("Charm")] = cosmetics.Charm
+                            end
+                            if cosmetics.Wrap then
+                                replicatedData[dataKey][ReplicatedClass:ToEnum("Wrap")] = cosmetics.Wrap
+                            end
+                        end
+                        local result = origHooks.VMNew(replicatedData, clientItem)
+                        if enabledFlag and weaponPlayer == player and equipped[weaponName] and equipped[weaponName].Wrap and result._UpdateWrap then
+                            result:_UpdateWrap()
+                            task.delay(0.1, function()
+                                if not result._destroyed then result:_UpdateWrap() end
+                            end)
+                        end
+                        return result
+                    end
+                end
+                if ClientViewModel.GetCharm and not origHooks.GetCharm then
+                    origHooks.GetCharm = ClientViewModel.GetCharm
+                    ClientViewModel.GetCharm = function(self)
+                        if enabledFlag then
+                            local weaponName = self.ClientItem and self.ClientItem.Name
+                            local weaponPlayer = self.ClientItem and self.ClientItem.ClientFighter and self.ClientItem.ClientFighter.Player
+                            if weaponName and weaponPlayer == player and equipped[weaponName] and equipped[weaponName].Charm then
+                                return equipped[weaponName].Charm
+                            end
+                        end
+                        return origHooks.GetCharm(self)
+                    end
+                end
+                if ClientViewModel.GetWrap and not origHooks.GetWrap then
+                    origHooks.GetWrap = ClientViewModel.GetWrap
+                    ClientViewModel.GetWrap = function(self)
+                        if enabledFlag then
+                            local weaponName = self.ClientItem and self.ClientItem.Name
+                            local weaponPlayer = self.ClientItem and self.ClientItem.ClientFighter and self.ClientItem.ClientFighter.Player
+                            if weaponName and weaponPlayer == player and equipped[weaponName] and equipped[weaponName].Wrap then
+                                return equipped[weaponName].Wrap
+                            end
+                        end
+                        return origHooks.GetWrap(self)
+                    end
+                end
+            end
+
+            if ItemLibrary and ItemLibrary.GetViewModelImageFromWeaponData and not origHooks.GetVMImage then
+                origHooks.GetVMImage = ItemLibrary.GetViewModelImageFromWeaponData
+                ItemLibrary.GetViewModelImageFromWeaponData = function(self, weaponData, highRes)
+                    if enabledFlag and weaponData then
+                        local weaponName = weaponData.Name
+                        local shouldShow = (weaponData.Skin and equipped[weaponName] and weaponData.Skin == equipped[weaponName].Skin)
+                            or (viewingProfile == player and equipped[weaponName] and equipped[weaponName].Skin)
+                        if shouldShow and equipped[weaponName] and equipped[weaponName].Skin then
+                            local skinInfo = self.ViewModels[equipped[weaponName].Skin.Name]
+                            if skinInfo then
+                                return skinInfo[highRes and "ImageHighResolution" or "Image"] or skinInfo.Image
+                            end
+                        end
+                    end
+                    return origHooks.GetVMImage(self, weaponData, highRes)
+                end
+            end
+
+            pcall(function()
+                local EmoteController = require(controllers:WaitForChild("EmoteController", 10))
+                if EmoteController and EmoteController.GetEmotes and not origHooks.GetEmotes then
+                    origHooks.GetEmotes = EmoteController.GetEmotes
+                    EmoteController.GetEmotes = function(self)
+                        local emotes = origHooks.GetEmotes(self)
+                        if enabledFlag then
+                            for name, cosmetic in pairs(CosmeticLibrary.Cosmetics) do
+                                if cosmetic and (cosmetic.Type == "Dance" or cosmetic.Type == "Emote") then
+                                    if not emotes[name] then
+                                        emotes[name] = {
+                                            Name = name,
+                                            Type = cosmetic.Type,
+                                            ObjectID = cosmetic.ObjectID,
+                                            Enum = cosmetic.Enum,
+                                        }
+                                    end
+                                end
+                            end
+                        end
+                        return emotes
+                    end
+                end
+            end)
+
+            pcall(function()
+                local ViewProfile = require(player.PlayerScripts.Modules.Pages.ViewProfile)
+                if ViewProfile and ViewProfile.Fetch and not origHooks.ViewFetch then
+                    origHooks.ViewFetch = ViewProfile.Fetch
+                    ViewProfile.Fetch = function(self, targetPlayer)
+                        viewingProfile = targetPlayer
+                        return origHooks.ViewFetch(self, targetPlayer)
+                    end
+                end
+            end)
+
+            print("[shako] Unlock All (skinchanger) instalado")
+        end)
+        if not ok then
+            warn("[shako] Unlock All error:", err)
+            installed = false
+        end
+    end
+
+    function StopUnlockAll()
+        enabledFlag = false
+        config.UnlockAll = false
+        -- No desinstalamos hooks (evita crashes); solo dejan de forzar owns
+        print("[shako] Unlock All OFF")
+    end
+end
+
+
+
+
+
+-- ==================== AUTO QUEUE RUNTIME (Rivals MatchmakingController) ====================
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local RS = game:GetService("ReplicatedStorage")
+    local LocalPlayer = Players.LocalPlayer
+    local lastInvoke = 0
+    local lastPrint = 0
+    local mmController, mmInterface = nil, nil
+
+    local function resolveMatchmaking()
+        if mmController and mmInterface then return true end
+        pcall(function()
+            local ps = LocalPlayer:WaitForChild("PlayerScripts", 5)
+            local controllers = ps and ps:FindFirstChild("Controllers")
+            local mod = controllers and controllers:FindFirstChild("MatchmakingController")
+            if mod then
+                mmController = require(mod)
+            end
+        end)
+        -- Interface a veces vive en UI modules
+        pcall(function()
+            local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+            for _, d in ipairs((ps and ps:GetDescendants()) or {}) do
+                if d.Name == "Matchmaking" and d:IsA("ModuleScript") then
+                    local ok, m = pcall(require, d)
+                    if ok and type(m) == "table" then
+                        mmInterface = m
+                        break
+                    end
+                end
+            end
+        end)
+        return mmController ~= nil
+    end
+
+    local function currentQueueName()
+        local name = nil
+        pcall(function()
+            if mmInterface then
+                name = rawget(mmInterface, "_current_queue_name") or mmInterface._current_queue_name
+            end
+        end)
+        return name
+    end
+
+    local function is_in_match()
+        local lp = LocalPlayer
+        if not lp then return false end
+        -- IsInDuel / Status en player data
+        local inDuel = false
+        pcall(function()
+            if lp:GetAttribute("IsInDuel") == true then inDuel = true end
+            if lp:GetAttribute("InMatch") == true then inDuel = true end
+        end)
+        if inDuel then return true end
+        -- Place distinto al lobby (si PlaceId cambia en match)
+        -- No asumimos: solo atributos + fighter en combate activo
+        local fighting = false
+        pcall(function()
+            local ps = lp:FindFirstChild("PlayerScripts")
+            local c = ps and ps:FindFirstChild("Controllers")
+            local fcMod = c and c:FindFirstChild("FighterController")
+            if not fcMod then return end
+            local fc = require(fcMod)
+            local fighter = fc.LocalFighter
+            if not fighter and type(fc.GetFighter) == "function" then
+                fighter = fc:GetFighter(lp)
+            end
+            if fighter then
+                -- en lobby a veces hay fighter en shooting range; exigir Health + no solo range
+                local char = lp.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 and hum.Health < hum.MaxHealth then
+                    fighting = true
+                end
+            end
+        end)
+        return fighting
+    end
+
+    local function joinQueue(mode)
+        local now = tick()
+        if now - lastInvoke < 1.5 then return end
+        lastInvoke = now
+        mode = tostring(mode or "1v1")
+
+        resolveMatchmaking()
+
+        -- 1) Preferido: MatchmakingController:QueueInto (Kicia/Rivals)
+        local okCtrl = false
+        if mmController and type(mmController.QueueInto) == "function" then
+            local cur = currentQueueName()
+            if cur and cur ~= mode and type(mmController.LeaveQueue) == "function" then
+                pcall(function() mmController:LeaveQueue() end)
+                task.wait(0.15)
+            end
+            if cur == mode then
+                okCtrl = true -- ya en cola correcta
+            else
+                okCtrl = pcall(function() mmController:QueueInto(mode) end)
+            end
+        end
+
+        -- 2) Fallback remote JoinQueue
+        local okRemote = false
+        pcall(function()
+            local remotes = RS:FindFirstChild("Remotes")
+            local mm = remotes and remotes:FindFirstChild("Matchmaking")
+            if not mm then return end
+            local jq = mm:FindFirstChild("JoinQueue")
+            if not jq then
+                -- buscar por nombre parcial
+                for _, ch in ipairs(mm:GetChildren()) do
+                    if string.find(string.lower(ch.Name), "join") and string.find(string.lower(ch.Name), "queue") then
+                        jq = ch
+                        break
+                    end
+                end
+            end
+            if not jq then return end
+            if jq:IsA("RemoteFunction") then
+                jq:InvokeServer(mode)
+                okRemote = true
+            elseif jq:IsA("RemoteEvent") then
+                jq:FireServer(mode)
+                okRemote = true
+            end
+        end)
+
+        if now - lastPrint > 3 then
+            lastPrint = now
+            print(string.format("[shako] AutoQueue mode=%s ctrl=%s remote=%s curQueue=%s",
+                mode, tostring(okCtrl), tostring(okRemote), tostring(currentQueueName())))
+        end
+    end
+
+    print("[shako] Auto Queue runtime ready (QueueInto + JoinQueue)")
+    while true do
+        if config and config.AutoQueueEnabled then
+            if not is_in_match() then
+                joinQueue(config.AutoQueueMatch or "1v1")
+            end
+            task.wait(1.0)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+
 pcall(function() getgenv().shako_win_ok = true end)
 
 
-task.spawn(function()
-    task.wait(1.5)
-    pcall(function()
-        if Cfg and Cfg.InstallGrokPresets then
-            Cfg.InstallGrokPresets()
-        end
-    end)
-end)
+-- presets desactivados
+
 
 pcall(function()
     if Connections then
