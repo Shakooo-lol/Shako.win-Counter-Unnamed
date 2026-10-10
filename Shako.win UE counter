@@ -4083,15 +4083,111 @@ function Spoof.getMyUser()
     return Spoof.getMyName()
 end
 
+function Spoof.patchEscMenu()
+    if not config.SpoofEnabled then return end
+    local fakeDisp = Spoof.getMyDisplay()
+    local fakeUser = Spoof.getMyUser()
+    local realName = LocalPlayer.Name
+    local realDisp = LocalPlayer.DisplayName or realName
+    if fakeDisp == "" then return end
+
+    local function replaceText(obj)
+        if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then
+            return
+        end
+        local t = obj.Text or ""
+        if t == "" then return end
+        local tl = string.lower(t)
+        local rn = string.lower(realName)
+        local rd = string.lower(realDisp)
+        local fd = string.lower(fakeDisp)
+        local fu = string.lower(tostring(fakeUser):gsub("^@", ""))
+
+        if tl == fd or tl == "@" .. fd or tl == fu or tl == "@" .. fu then
+            return
+        end
+        if t == realName or tl == rn then
+            if t:sub(1, 1) == "@" or (obj.Name and string.lower(obj.Name):find("user", 1, true)) then
+                obj.Text = "@" .. tostring(fakeUser):gsub("^@", "")
+            else
+                obj.Text = fakeDisp
+            end
+            return
+        end
+        if t == realDisp or tl == rd then
+            obj.Text = fakeDisp
+            return
+        end
+        if t == "@" .. realName or tl == "@" .. rn then
+            obj.Text = "@" .. tostring(fakeUser):gsub("^@", "")
+            return
+        end
+        -- texto compuesto "Display @user"
+        if tl:find(rn, 1, true) or tl:find(rd, 1, true) then
+            local nt = t
+            if realDisp ~= "" then
+                nt = nt:gsub(realDisp, fakeDisp)
+            end
+            nt = nt:gsub(realName, fakeDisp)
+            nt = nt:gsub("@" .. realName, "@" .. tostring(fakeUser):gsub("^@", ""))
+            if nt ~= t then
+                obj.Text = nt
+            end
+        end
+    end
+
+    pcall(function()
+        local CoreGui = game:GetService("CoreGui")
+        for _, child in ipairs(CoreGui:GetChildren()) do
+            local n = string.lower(child.Name or "")
+            if n:find("player", 1, true) or n:find("list", 1, true) or n:find("menu", 1, true)
+                or n:find("robloxgui", 1, true) or n:find("topbar", 1, true)
+                or n:find("app", 1, true) or n:find("insp", 1, true) then
+                for _, obj in ipairs(child:GetDescendants()) do
+                    replaceText(obj)
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, obj in ipairs(pg:GetDescendants()) do
+                replaceText(obj)
+            end
+        end
+    end)
+end
+
 function Spoof.refreshLocal()
     if not config.SpoofEnabled then return end
     local fake = Spoof.getMyDisplay()
+    local fakeUser = Spoof.getMyUser()
+
+    -- DisplayName local (ESC / lista usa esto mucho)
+    pcall(function()
+        if config.SpoofMyDisplayName or config.SpoofMyName then
+            if fake and fake ~= "" then
+                LocalPlayer.DisplayName = fake
+            end
+        end
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum and fake and fake ~= "" then
+            hum.DisplayName = fake
+        end
+    end)
+
     local char = LocalPlayer.Character
-    if char then Spoof.applyNametags(char, fake) end
+    if char then
+        Spoof.applyNametags(char, fake)
+    end
+
     if config.SpoofProfileUI then
         pcall(function()
-            if type(Spoof.scanPlayerGui) == "function" then
-                Spoof.scanPlayerGui()
+            Spoof.patchEscMenu()
+            if type(Spoof.patchMyProfileUI) == "function" then
+                Spoof.patchMyProfileUI()
             end
         end)
     end
@@ -4099,6 +4195,43 @@ end
 
 function Spoof.refreshAll()
     Spoof.refreshLocal()
+end
+
+-- Cuando abren ESC (player list), re-aplicar nombre falso
+if not Spoof._escHooked then
+    Spoof._escHooked = true
+    pcall(function()
+        local UIS = game:GetService("UserInputService")
+        UIS.InputBegan:Connect(function(input, gp)
+            if not config.SpoofEnabled then return end
+            if input.KeyCode == Enum.KeyCode.Escape then
+                task.delay(0.15, function()
+                    if config.SpoofEnabled then
+                        Spoof.patchEscMenu()
+                    end
+                end)
+                task.delay(0.4, function()
+                    if config.SpoofEnabled then
+                        Spoof.patchEscMenu()
+                    end
+                end)
+            end
+        end)
+    end)
+    pcall(function()
+        local GuiService = game:GetService("GuiService")
+        if GuiService.MenuOpened then
+            GuiService.MenuOpened:Connect(function()
+                if not config.SpoofEnabled then return end
+                task.delay(0.1, function()
+                    Spoof.patchEscMenu()
+                end)
+                task.delay(0.35, function()
+                    Spoof.patchEscMenu()
+                end)
+            end)
+        end
+    end)
 end
 
 -- Stats text spoof (solo labels locales del LocalPlayer UI)
@@ -4313,14 +4446,16 @@ function Spoof.patchMyProfileUI()
     -- billboards local desactivado (nametag propio = lag / doble nombre)
 end
 function Spoof.forceLocalDisplay()
-    if not config.SpoofEnabled or not config.SpoofMyName then return end
-    local fake = tostring(config.SpoofMyNameValue or "")
-    if fake == "" then return end
+    if not config.SpoofEnabled then return end
+    if not (config.SpoofMyName or config.SpoofMyDisplayName) then return end
+    local fake = Spoof.getMyDisplay()
+    if not fake or fake == "" then return end
     pcall(function()
-        pcall(function() LocalPlayer.DisplayName = fake end)
+        LocalPlayer.DisplayName = fake
         local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         if hum then hum.DisplayName = fake end
     end)
+    pcall(Spoof.patchEscMenu)
 end
 function Spoof.hookLabel(obj)
     if not obj or Spoof.tagged[obj] then return end
@@ -9706,530 +9841,782 @@ end)()
 -- Box + skeleton body-sized, outline, health, name, distance, tracers, chams
 getgenv()._ShakoESPPro = getgenv()._ShakoESPPro or { Targets = {}, bound = false }
 
--- ==================== KICIA-STYLE PLAYER ESP ====================
-local ESP_BONES = {
-    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
-}
-
-local function espC(class, props, parent)
-    local o = Instance.new(class)
-    for k, v in pairs(props or {}) do o[k] = v end
-    if parent then o.Parent = parent end
-    return o
+local function espProCreate(class, props, parent)
+    local inst = Instance.new(class)
+    for k, v in pairs(props or {}) do
+        inst[k] = v
+    end
+    if parent then inst.Parent = parent end
+    return inst
 end
 
-local function espGuiParent()
+local function espProSetLine(frame, a, b, thickness, color)
+    local delta = b - a
+    frame.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+    frame.Size = UDim2.fromOffset(math.max(delta.Magnitude, 1), thickness)
+    frame.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+    frame.BackgroundColor3 = color
+    frame.Visible = true
+end
+
+local function espProNewLine(parent, z)
+    return espProCreate("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BorderSizePixel = 0,
+        ZIndex = z or 3,
+        Visible = false,
+    }, parent)
+end
+
+local function espProStrokeBox(parent, color, z, thickness)
+    local f = espProCreate("Frame", {
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = z or 3,
+        Visible = false,
+    }, parent)
+    local s = espProCreate("UIStroke", {
+        Color = color,
+        Thickness = thickness or 2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        LineJoinMode = Enum.LineJoinMode.Miter,
+    }, f)
+    return f, s
+end
+
+local function espProNewCircle(parent, color, thickness, z)
+    local f = espProCreate("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = z or 3,
+        Visible = false,
+    }, parent)
+    espProCreate("UICorner", { CornerRadius = UDim.new(1, 0) }, f)
+    local s = espProCreate("UIStroke", {
+        Color = color,
+        Thickness = thickness or 2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, f)
+    return f, s
+end
+
+local function espProNewLabel(parent, textSize, anchor, color)
+    return espProCreate("TextLabel", {
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = textSize or 13,
+        TextColor3 = color or Color3.new(1, 1, 1),
+        TextStrokeColor3 = Color3.new(0, 0, 0),
+        TextStrokeTransparency = 0,
+        AnchorPoint = anchor or Vector2.new(0.5, 1),
+        Size = UDim2.fromOffset(220, (textSize or 13) + 2),
+        Text = "",
+        ZIndex = 6,
+        Visible = false,
+    }, parent)
+end
+
+local function espProExtents(cf, size)
+    local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
+    local sx, sy, sz = size.X / 2, size.Y / 2, size.Z / 2
+    local ex = math.abs(r00) * sx + math.abs(r01) * sy + math.abs(r02) * sz
+    local ey = math.abs(r10) * sx + math.abs(r11) * sy + math.abs(r12) * sz
+    local ez = math.abs(r20) * sx + math.abs(r21) * sy + math.abs(r22) * sz
+    return x - ex, y - ey, z - ez, x + ex, y + ey, z + ez
+end
+
+local function espProColor()
+    local c = config.ESPBoxColor or config.ESPColor
+    if typeof(c) == "Color3" then return c end
+    local map = {
+        Red = Color3.fromRGB(255, 40, 40),
+        White = Color3.fromRGB(255, 255, 255),
+        Pink = Color3.fromRGB(255, 105, 180),
+        Green = Color3.fromRGB(80, 255, 120),
+        Cyan = Color3.fromRGB(80, 220, 255),
+        Yellow = Color3.fromRGB(255, 220, 80),
+        Purple = Color3.fromRGB(180, 100, 255),
+        Orange = Color3.fromRGB(255, 150, 40),
+        Blue = Color3.fromRGB(60, 140, 255),
+        Magenta = Color3.fromRGB(255, 80, 220),
+    }
+    return map[tostring(c or "Red")] or Color3.fromRGB(255, 40, 40)
+end
+
+local function espProGetGuiParent()
     local p
-    pcall(function() p = gethui and gethui() end)
+    pcall(function() if gethui then p = gethui() end end)
     if not p then pcall(function() p = game:GetService("CoreGui") end) end
-    if not p then p = LocalPlayer:FindFirstChild("PlayerGui") end
+    if not p then
+        p = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui")
+    end
     return p
 end
 
-local function espLine(parent, thick, z)
-    local f = espC("Frame", {
-        BorderSizePixel = 0, BackgroundColor3 = Color3.new(1,1,1),
-        AnchorPoint = Vector2.new(0.5, 0.5), ZIndex = z or 3, Visible = false,
-    }, parent)
-    return f
-end
+-- Pares de huesos fijos (R15 + R6) — no depende de Motor6D
+local ESP_BONE_PAIRS = {
+    -- R15
+    { "Head", "UpperTorso" },
+    { "UpperTorso", "LowerTorso" },
+    { "UpperTorso", "LeftUpperArm" },
+    { "LeftUpperArm", "LeftLowerArm" },
+    { "LeftLowerArm", "LeftHand" },
+    { "UpperTorso", "RightUpperArm" },
+    { "RightUpperArm", "RightLowerArm" },
+    { "RightLowerArm", "RightHand" },
+    { "LowerTorso", "LeftUpperLeg" },
+    { "LeftUpperLeg", "LeftLowerLeg" },
+    { "LeftLowerLeg", "LeftFoot" },
+    { "LowerTorso", "RightUpperLeg" },
+    { "RightUpperLeg", "RightLowerLeg" },
+    { "RightLowerLeg", "RightFoot" },
+    -- R6
+    { "Head", "Torso" },
+    { "Torso", "Left Arm" },
+    { "Torso", "Right Arm" },
+    { "Torso", "Left Leg" },
+    { "Torso", "Right Leg" },
+}
 
-local function espSetLine(f, a, b, thick, col, vis)
-    if not f then return end
-    if not vis or not a or not b then f.Visible = false return end
-    local d = b - a
-    local m = d.Magnitude
-    if m < 0.5 then f.Visible = false return end
-    f.Visible = true
-    f.BackgroundColor3 = col or Color3.new(1,1,1)
-    f.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
-    f.Size = UDim2.fromOffset(math.max(m, 1), thick or 1)
-    f.Rotation = math.deg(math.atan2(d.Y, d.X))
-end
-
-local function espLabel(parent, size, anchor)
-    local t = espC("TextLabel", {
-        BackgroundTransparency = 1, BorderSizePixel = 0,
-        Font = Enum.Font.GothamBold, TextSize = size or 13,
-        TextColor3 = Color3.new(1,1,1), TextStrokeTransparency = 0.4,
-        TextStrokeColor3 = Color3.new(0,0,0), AnchorPoint = anchor or Vector2.new(0.5, 0.5),
-        TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6, Visible = false,
-        Size = UDim2.fromOffset(200, 18),
-    }, parent)
-    return t
-end
-
-local function espEnemyColor()
-    local c = config.ESPBoxColor or config.ESPEnemyColor
-    if typeof(c) == "Color3" then return c end
-    return Color3.fromRGB(255, 255, 255)
-end
-
-local function espTeamColor()
-    local c = config.ESPTeamColor
-    if typeof(c) == "Color3" then return c end
-    return Color3.fromRGB(80, 180, 255)
-end
-
-local function espIsTeam(plr)
-    if not plr or plr == LocalPlayer then return false end
-    if IsSameTeam then
-        local ok, v = pcall(IsSameTeam, plr)
-        if ok and v then return true end
+local function espProRebuild(e, now)
+    e.dirty = false
+    e.lastBuild = now
+    local model = e.model
+    local parts = {}
+    for _, c in ipairs(model:GetDescendants()) do
+        if c:IsA("BasePart") then
+            parts[#parts + 1] = c
+        end
     end
-    if LocalPlayer.Team and plr.Team and LocalPlayer.Team == plr.Team then return true end
-    return false
+    e.parts = parts
+    local head = model:FindFirstChild("Head")
+    e.head = (head and head:IsA("BasePart")) and head or nil
+    e.hrp = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart or parts[1]
+
+    -- construir lista de {partA, partB}
+    local bones = {}
+    local seen = {}
+    for _, pair in ipairs(ESP_BONE_PAIRS) do
+        local a = model:FindFirstChild(pair[1])
+        local b = model:FindFirstChild(pair[2])
+        if a and b and a:IsA("BasePart") and b:IsA("BasePart") then
+            local key = pair[1] .. "|" .. pair[2]
+            if not seen[key] then
+                seen[key] = true
+                bones[#bones + 1] = { partA = a, partB = b }
+            end
+        end
+    end
+    -- fallback: si no hay pares (rig raro), unir HRP-Head
+    if #bones == 0 and e.hrp and e.head then
+        bones[1] = { partA = e.head, partB = e.hrp }
+    end
+    e.bones = bones
 end
 
-local function espWorldTo(pos)
-    local cam = workspace.CurrentCamera
-    if not cam then return nil end
-    local v, on = cam:WorldToViewportPoint(pos)
-    if v.Z <= 0 then return nil, false end
-    return Vector2.new(v.X, v.Y), on, v.Z
+local function espProCornerPair(parent)
+    -- 8 corner segments: outer black + inner color (UE style)
+    local corners = { out = {}, main = {} }
+    for n = 1, 8 do
+        corners.out[n] = espProNewLine(parent, 2)
+        corners.main[n] = espProNewLine(parent, 3)
+    end
+    return corners
 end
 
-local function espMakeTarget(model, hum, layer)
-    local e = { model = model, hum = hum, conns = {}, bones = {}, cham = nil }
-    local root = espC("Folder", { Name = model.Name }, layer)
+local function espProDrawCornerBox(corners, x, y, w, h, color, thickness, outline)
+    -- L-corners: TL, TR, BL, BR  (2 lines each = 8)
+    local t = math.max(tonumber(thickness) or 2, 1)
+    local len = math.clamp(math.floor(math.min(w, h) * 0.28), 6, 18)
+    local pts = {
+        -- TL horizontal + vertical
+        { Vector2.new(x, y), Vector2.new(x + len, y) },
+        { Vector2.new(x, y), Vector2.new(x, y + len) },
+        -- TR
+        { Vector2.new(x + w, y), Vector2.new(x + w - len, y) },
+        { Vector2.new(x + w, y), Vector2.new(x + w, y + len) },
+        -- BL
+        { Vector2.new(x, y + h), Vector2.new(x + len, y + h) },
+        { Vector2.new(x, y + h), Vector2.new(x, y + h - len) },
+        -- BR
+        { Vector2.new(x + w, y + h), Vector2.new(x + w - len, y + h) },
+        { Vector2.new(x + w, y + h), Vector2.new(x + w, y + h - len) },
+    }
+    for i, seg in ipairs(pts) do
+        local out = corners.out[i]
+        local main = corners.main[i]
+        if outline then
+            espProSetLine(out, seg[1], seg[2], t + 2, Color3.new(0, 0, 0))
+        elseif out then
+            out.Visible = false
+        end
+        espProSetLine(main, seg[1], seg[2], t, color)
+    end
+end
+
+local function espProHideCorners(corners)
+    if not corners then return end
+    for i = 1, 8 do
+        if corners.out[i] then corners.out[i].Visible = false end
+        if corners.main[i] then corners.main[i].Visible = false end
+    end
+end
+
+local function espProCreateTarget(model, hum, layer)
+    local e = {
+        model = model,
+        hum = hum,
+        parts = {},
+        bones = {},
+        jp = {},
+        skOut = {},
+        skMain = {},
+        conns = {},
+        dirty = true,
+        lastBuild = 0,
+        shown = false,
+    }
+    local root = espProCreate("Frame", {
+        Name = model.Name,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Size = UDim2.fromScale(1, 1),
+        Visible = false,
+    }, layer)
     e.root = root
 
-    -- box 4 sides + corners
-    e.box = {}
-    for i = 1, 4 do e.box[i] = espLine(root, 2, 3) end
-    e.corners = {}
-    for i = 1, 8 do e.corners[i] = espLine(root, 2, 4) end
-    e.fill = espC("Frame", { BorderSizePixel = 0, BackgroundTransparency = 0.8, ZIndex = 1, Visible = false }, root)
+    -- soft fill (UE-like low opacity)
+    e.fill = espProCreate("Frame", { BorderSizePixel = 0, ZIndex = 1, Visible = false }, root)
+    espProCreate("UIGradient", {
+        Rotation = 90,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.72),
+            NumberSequenceKeypoint.new(1, 0.92),
+        }),
+    }, e.fill)
 
-    -- health
-    e.hpBG = espC("Frame", { BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 0.2, BorderSizePixel = 0, ZIndex = 4, Visible = false }, root)
-    e.hpFill = espC("Frame", { BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(0, 255, 100), ZIndex = 5, Visible = false }, root)
-    e.hpNum = espLabel(root, 11, Vector2.new(1, 0.5))
+    -- full box (optional style)
+    e.boxOut = espProStrokeBox(root, Color3.new(0, 0, 0), 2, 1)
+    e.boxIn = espProStrokeBox(root, Color3.new(0, 0, 0), 2, 1)
+    e.box, e.boxS = espProStrokeBox(root, espProColor(), 3, 1.5)
 
-    -- texts
-    e.name = espLabel(root, 14, Vector2.new(0.5, 1))
-    e.dist = espLabel(root, 12, Vector2.new(0.5, 0))
-    e.weapon = espLabel(root, 11, Vector2.new(0.5, 0))
-    e.rank = espLabel(root, 11, Vector2.new(0.5, 0))
+    -- corner brackets (UE default)
+    e.corners = espProCornerPair(root)
 
-    -- tracer
-    e.trOut = espLine(root, 3, 2)
-    e.trMain = espLine(root, 2, 3)
+    -- health bar pro
+    e.hpBG = espProCreate("Frame", {
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.15,
+        BorderSizePixel = 0,
+        ZIndex = 4,
+        Visible = false,
+    }, root)
+    e.hpFill = espProCreate("Frame", { BorderSizePixel = 0, ZIndex = 5, Visible = false }, root)
+    e.hpText = espProNewLabel(root, 11, Vector2.new(1, 0.5))
+    e.hpText.TextXAlignment = Enum.TextXAlignment.Right
+    e.hpText.Font = Enum.Font.GothamBold
 
-    -- head marker
-    e.head = espC("Frame", { BorderSizePixel = 0, BackgroundTransparency = 1, ZIndex = 7, Visible = false, AnchorPoint = Vector2.new(0.5, 0.5) }, root)
-    e.headL1 = espLine(e.head, 2, 8)
-    e.headL2 = espLine(e.head, 2, 8)
-    e.headCircle = espC("Frame", { BorderSizePixel = 0, BackgroundTransparency = 1, ZIndex = 8, Visible = false, AnchorPoint = Vector2.new(0.5, 0.5) }, e.head)
-    espC("UICorner", { CornerRadius = UDim.new(1, 0) }, e.headCircle)
-    espC("UIStroke", { Thickness = 1.5, Color = Color3.new(1,1,1) }, e.headCircle)
+    -- name / dist UE style
+    e.name = espProNewLabel(root, 14, Vector2.new(0.5, 1))
+    e.name.Font = Enum.Font.GothamBold
+    e.dist = espProNewLabel(root, 12, Vector2.new(0.5, 0), Color3.fromRGB(210, 210, 220))
+    e.dist.Font = Enum.Font.Gotham
 
-    -- skeleton lines
-    for i = 1, #ESP_BONES do
-        e.bones[i] = espLine(root, 1, 3)
-        e.bones[i + #ESP_BONES] = espLine(root, 2, 2) -- outline under
-    end
+    -- weapon line
+    e.weapon = espProNewLabel(root, 11, Vector2.new(0.5, 0), Color3.fromRGB(180, 180, 190))
+    e.weapon.Font = Enum.Font.Gotham
 
+    e.trOut = espProNewLine(root, 2)
+    e.trMain = espProNewLine(root, 3)
+    e.headOut = espProNewCircle(root, Color3.new(0, 0, 0), 3, 2)
+    e.headMain, e.headMainS = espProNewCircle(root, espProColor(), 1.5, 3)
+
+    local function markDirty() e.dirty = true end
+    e.conns[#e.conns + 1] = model.DescendantAdded:Connect(markDirty)
+    e.conns[#e.conns + 1] = model.DescendantRemoving:Connect(markDirty)
     return e
 end
 
-local function espDestroyTarget(model)
+local function espProRemove(model)
     local S = getgenv()._ShakoESPPro
     local e = S.Targets[model]
     if not e then return end
     S.Targets[model] = nil
-    for _, c in ipairs(e.conns or {}) do pcall(function() c:Disconnect() end) end
-    if e.cham then pcall(function() e.cham:Destroy() end) end
+    for _, c in ipairs(e.conns) do pcall(function() c:Disconnect() end) end
+    if e.hl then pcall(function() e.hl:Destroy() end) end
     if e.root then pcall(function() e.root:Destroy() end) end
 end
 
-local function espGetWeapon(model, plr)
-    local tool = model:FindFirstChildOfClass("Tool")
-    if tool then return tool.Name end
-    if plr then
-        local bp = plr:FindFirstChild("Backpack")
-        -- equipped via character only for held
+local function espProHide(e)
+    if e.shown then
+        e.shown = false
+        e.root.Visible = false
     end
-    return nil
+    if e.hl and e.hl.Enabled then
+        e.hl.Enabled = false
+    end
+    pcall(function() espProHideCorners(e.corners) end)
 end
 
-local function espUpdateOne(e, dt)
-    local model = e.model
-    local hum = e.hum
-    if not model or not model.Parent or not hum or not hum.Parent or hum.Health <= 0 then
-        return false
+local function espProGetLines(e, i)
+    local out, main = e.skOut[i], e.skMain[i]
+    if not out then
+        out = espProNewLine(e.root, 2)
+        main = espProNewLine(e.root, 3)
+        e.skOut[i], e.skMain[i] = out, main
     end
-    local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("UpperTorso") or model.PrimaryPart
-    local head = model:FindFirstChild("Head")
-    if not hrp then return false end
+    return out, main
+end
 
-    local plr = Players:GetPlayerFromCharacter(model)
-    local isTeam = plr and espIsTeam(plr)
-    if config.ESPTeamCheck and isTeam then
-        e.root.Parent = nil
-        return true
-    end
-    if not e.root.Parent then
-        local S = getgenv()._ShakoESPPro
-        e.root.Parent = S.layer
-    end
-
-    local col = isTeam and espTeamColor() or espEnemyColor()
-    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local dist = myRoot and (hrp.Position - myRoot.Position).Magnitude or 0
-
-    -- 2D bounds from head + feet
-    local topPos = head and (head.Position + Vector3.new(0, 0.35, 0)) or (hrp.Position + Vector3.new(0, 2, 0))
-    local botPos = hrp.Position - Vector3.new(0, 3, 0)
-    local top, onT = espWorldTo(topPos)
-    local bot, onB = espWorldTo(botPos)
-    local mid, onM = espWorldTo(hrp.Position)
-    if not top or not bot then
-        for _, c in ipairs(e.box) do c.Visible = false end
-        for _, c in ipairs(e.corners) do c.Visible = false end
-        e.fill.Visible = false
-        e.name.Visible = false
-        e.dist.Visible = false
-        e.weapon.Visible = false
-        e.hpBG.Visible = false
-        e.hpFill.Visible = false
-        e.hpNum.Visible = false
-        e.trMain.Visible = false
-        e.trOut.Visible = false
-        e.head.Visible = false
-        for _, b in ipairs(e.bones) do b.Visible = false end
-        return true
-    end
-
-    local h = math.abs(bot.Y - top.Y)
-    local w = h * 0.55
-    local cx = (top.X + bot.X) / 2
-    local topY, botY = math.min(top.Y, bot.Y), math.max(top.Y, bot.Y)
-    local left, right = cx - w / 2, cx + w / 2
-    local tl, tr = Vector2.new(left, topY), Vector2.new(right, topY)
-    local bl, br = Vector2.new(left, botY), Vector2.new(right, botY)
-
-    local showBox = config.ESPBox ~= false and config.ESPShowBox ~= false
-    local style = tostring(config.ESPBoxStyle or "Full")
-    local thick = tonumber(config.ESPBoxThickness) or 1.5
-
-    -- full box
-    local full = showBox and (style == "Full" or style == "Full Box")
-    espSetLine(e.box[1], tl, tr, thick, col, full)
-    espSetLine(e.box[2], tr, br, thick, col, full)
-    espSetLine(e.box[3], br, bl, thick, col, full)
-    espSetLine(e.box[4], bl, tl, thick, col, full)
-
-    -- corner style
-    local corner = showBox and (style == "Corner" or style == "Corners" or config.ESPBoxBrackets)
-    local cl = math.max(w * 0.25, 6)
-    if corner then
-        espSetLine(e.corners[1], tl, Vector2.new(tl.X + cl, tl.Y), thick, col, true)
-        espSetLine(e.corners[2], tl, Vector2.new(tl.X, tl.Y + cl), thick, col, true)
-        espSetLine(e.corners[3], tr, Vector2.new(tr.X - cl, tr.Y), thick, col, true)
-        espSetLine(e.corners[4], tr, Vector2.new(tr.X, tr.Y + cl), thick, col, true)
-        espSetLine(e.corners[5], bl, Vector2.new(bl.X + cl, bl.Y), thick, col, true)
-        espSetLine(e.corners[6], bl, Vector2.new(bl.X, bl.Y - cl), thick, col, true)
-        espSetLine(e.corners[7], br, Vector2.new(br.X - cl, br.Y), thick, col, true)
-        espSetLine(e.corners[8], br, Vector2.new(br.X, br.Y - cl), thick, col, true)
-    else
-        for _, c in ipairs(e.corners) do c.Visible = false end
-    end
-
-    -- filled box
-    if config.ESPBoxFill or config.ESPFilledBox then
-        e.fill.Visible = true
-        e.fill.BackgroundColor3 = config.ESPBoxFillColor or col
-        e.fill.BackgroundTransparency = tonumber(config.ESPBoxFillTransparency) or 0.8
-        e.fill.Position = UDim2.fromOffset(left, topY)
-        e.fill.Size = UDim2.fromOffset(w, h)
-    else
-        e.fill.Visible = false
-    end
-
-    -- health bar (always green fill, reactive height)
-    local hpFrac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-    if config.ESPHealthBar ~= false and config.ESPShowHP ~= false then
-        local barW = 3
-        local barX = left - 6
-        e.hpBG.Visible = true
-        e.hpFill.Visible = true
-        e.hpBG.Position = UDim2.fromOffset(barX, topY)
-        e.hpBG.Size = UDim2.fromOffset(barW, h)
-        local fh = h * hpFrac
-        e.hpFill.Position = UDim2.fromOffset(barX, topY + (h - fh))
-        e.hpFill.Size = UDim2.fromOffset(barW, fh)
-        e.hpFill.BackgroundColor3 = Color3.fromRGB(
-            math.floor(255 * (1 - hpFrac)),
-            math.floor(255 * hpFrac),
-            40
-        )
-        if config.ESPHealthNumber then
-            e.hpNum.Visible = true
-            e.hpNum.Text = tostring(math.floor(hum.Health))
-            e.hpNum.Position = UDim2.fromOffset(barX - 2, topY + h / 2)
-            e.hpNum.TextColor3 = Color3.new(1,1,1)
+local function espProJoint2D(e, m, cam)
+    local v = e.jp[m]
+    if v == nil then
+        local p1 = m.Part1
+        if p1 and p1.Parent then
+            local sp = cam:WorldToViewportPoint((p1.CFrame * m.C1).Position)
+            v = sp.Z > 0 and Vector2.new(sp.X, sp.Y) or false
         else
-            e.hpNum.Visible = false
+            v = false
+        end
+        e.jp[m] = v
+    end
+    return v
+end
+
+local function espProDraw(e, camPos, color, vp, now, cam)
+    local model, hum = e.model, e.hum
+    if not config.ESPEnabled or model == LocalPlayer.Character or not hum.Parent or hum.Health <= 0 then
+        return espProHide(e)
+    end
+    if type(isESPKeyActive) == "function" and not isESPKeyActive() then
+        return espProHide(e)
+    end
+
+    if not e.player then
+        e.player = Players:GetPlayerFromCharacter(model)
+    end
+    -- Solo jugadores por defecto (Rivals)
+    if not e.player and not config.ESPIncludeNPCs then
+        return espProHide(e)
+    end
+    if config.ESPTeamCheck and e.player and e.player.Team and LocalPlayer.Team and e.player.Team == LocalPlayer.Team then
+        return espProHide(e)
+    end
+
+    if e.dirty and now - (e.lastBuild or 0) > 0.25 then
+        espProRebuild(e, now)
+    end
+
+    local hrp = e.hrp
+    if not hrp or not hrp.Parent then
+        return espProHide(e)
+    end
+
+    local dist = (hrp.Position - camPos).Magnitude
+    local maxDist = (config.ESPInfiniteRange and 1e9) or (tonumber(config.ESPMaxDistance) or tonumber(config.ESPMaxDist) or 1500)
+    if dist > maxDist then
+        return espProHide(e)
+    end
+
+    if config.ESPUseTeamColor and e.player and e.player.Team then
+        color = e.player.TeamColor.Color
+    end
+    if config.ESPRainbow then
+        color = Color3.fromHSV((now * 0.25) % 1, 0.85, 1)
+    end
+
+    -- AABB body parts
+    local x0, y0, z0 = math.huge, math.huge, math.huge
+    local x1, y1, z1 = -math.huge, -math.huge, -math.huge
+    local n = 0
+    for _, p in ipairs(e.parts) do
+        if p.Parent then
+            local a, b, c, d, f, g = espProExtents(p.CFrame, p.Size)
+            x0, y0, z0 = math.min(x0, a), math.min(y0, b), math.min(z0, c)
+            x1, y1, z1 = math.max(x1, d), math.max(y1, f), math.max(z1, g)
+            n += 1
+        end
+    end
+    if n == 0 then return espProHide(e) end
+
+    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+    for i = 0, 7 do
+        local px = (i % 2 == 0) and x0 or x1
+        local py = (math.floor(i / 2) % 2 == 0) and y0 or y1
+        local pz = (i >= 4) and z0 or z1
+        local sp = cam:WorldToViewportPoint(Vector3.new(px, py, pz))
+        if sp.Z <= 0 then return espProHide(e) end
+        minX, maxX = math.min(minX, sp.X), math.max(maxX, sp.X)
+        minY, maxY = math.min(minY, sp.Y), math.max(maxY, sp.Y)
+    end
+    if maxX < 0 or minX > vp.X or maxY < 0 or minY > vp.Y then
+        return espProHide(e)
+    end
+
+    if not e.shown then
+        e.shown = true
+        e.root.Visible = true
+    end
+
+    local bx, by = math.floor(minX), math.floor(minY)
+    local bw = math.max(math.floor(maxX - minX), 4)
+    local bh = math.max(math.floor(maxY - minY), 6)
+
+    local showBox = config.ESPShowBox ~= false and config.ESPBox ~= false
+    -- treat nil as true for box/skeleton when ESP on - use explicit flags
+    showBox = config.ESPShowBox == true or config.ESPBox == true
+    local showSkel = config.ESPSkeleton == true
+    local showName = config.ESPShowName == true
+    local showDist = config.ESPShowDist == true
+    local showHP = config.ESPShowHP == true
+    local showTracers = config.ESPTracers == true
+    local showChams = config.ESPChams == true or config.ESPGlow == true
+    local boxOutline = config.ESPOutline ~= false
+    local skelOutline = config.ESPOutline ~= false
+    local boxFill = config.ESPFilledBox == true
+
+    -- BOX (UE style: Corner by default, Full optional)
+    local boxStyle = tostring(config.ESPBoxStyle or "Corner")
+    local th = tonumber(config.ESPBoxThickness) or 1.5
+    if not showBox then
+        e.box.Visible = false
+        e.boxOut.Visible = false
+        e.boxIn.Visible = false
+        espProHideCorners(e.corners)
+        e.fill.Visible = false
+    elseif boxStyle == "Full" or boxStyle == "Full Box" then
+        espProHideCorners(e.corners)
+        e.box.Visible = true
+        e.boxOut.Visible = boxOutline
+        e.boxIn.Visible = boxOutline
+        e.box.Position = UDim2.fromOffset(bx, by)
+        e.box.Size = UDim2.fromOffset(bw, bh)
+        if e.boxS then e.boxS.Color = color; e.boxS.Thickness = th end
+        if boxOutline then
+            e.boxOut.Position = UDim2.fromOffset(bx - 2, by - 2)
+            e.boxOut.Size = UDim2.fromOffset(bw + 4, bh + 4)
+            e.boxIn.Position = UDim2.fromOffset(bx + 1, by + 1)
+            e.boxIn.Size = UDim2.fromOffset(math.max(bw - 2, 0), math.max(bh - 2, 0))
         end
     else
-        e.hpBG.Visible = false
-        e.hpFill.Visible = false
-        e.hpNum.Visible = false
+        -- Corner brackets (Unnamed style)
+        e.box.Visible = false
+        e.boxOut.Visible = false
+        e.boxIn.Visible = false
+        espProDrawCornerBox(e.corners, bx, by, bw, bh, color, th, boxOutline)
     end
 
-    -- name
-    if config.ESPName ~= false and config.ESPShowName ~= false then
-        local nm = plr and (config.ESPUseDisplayName and plr.DisplayName or plr.Name) or model.Name
-        e.name.Visible = true
-        e.name.Text = nm
-        e.name.TextColor3 = col
-        e.name.Position = UDim2.fromOffset(cx, topY - 2)
-    else
-        e.name.Visible = false
+    e.fill.Visible = boxFill and showBox
+    if boxFill and showBox then
+        e.fill.Position = UDim2.fromOffset(bx, by)
+        e.fill.Size = UDim2.fromOffset(bw, bh)
+        e.fill.BackgroundColor3 = color
+        e.fill.BackgroundTransparency = 0.82
     end
 
-    -- distance
-    if config.ESPDistance ~= false and config.ESPShowDist ~= false then
-        e.dist.Visible = true
-        e.dist.Text = string.format("%dm", math.floor(dist))
+    -- SKELETON (part-to-part, full body)
+    if showSkel then
+        local used = 0
+        local th = tonumber(config.ESPSkeletonThickness) or 1.5
+        for i, bone in ipairs(e.bones) do
+            local out, main = espProGetLines(e, i)
+            local pa, pb = bone.partA, bone.partB
+            local A, B = nil, nil
+            if pa and pa.Parent and pb and pb.Parent then
+                local sa, oa = cam:WorldToViewportPoint(pa.Position)
+                local sb, ob = cam:WorldToViewportPoint(pb.Position)
+                if sa.Z > 0 and sb.Z > 0 then
+                    A = Vector2.new(sa.X, sa.Y)
+                    B = Vector2.new(sb.X, sb.Y)
+                end
+            end
+            if A and B and (A - B).Magnitude > 1 then
+                if skelOutline then
+                    espProSetLine(out, A, B, th + 2, Color3.new(0, 0, 0))
+                else
+                    out.Visible = false
+                end
+                espProSetLine(main, A, B, th, color)
+            else
+                out.Visible = false
+                main.Visible = false
+            end
+            used = i
+        end
+        for i = used + 1, #e.skMain do
+            e.skOut[i].Visible = false
+            e.skMain[i].Visible = false
+        end
+        -- head circle
+        local head = e.head
+        local showHead = false
+        if head and head.Parent then
+            local sp = cam:WorldToViewportPoint(head.Position)
+            if sp.Z > 0 then
+                local scale = vp.Y / (2 * math.tan(math.rad(cam.FieldOfView) / 2) * sp.Z)
+                local r = math.max(math.floor(head.Size.Y * 0.55 * scale), 3)
+                local pos = UDim2.fromOffset(math.floor(sp.X), math.floor(sp.Y))
+                e.headMain.Position = pos
+                e.headMain.Size = UDim2.fromOffset(r * 2, r * 2)
+                if e.headMainS then e.headMainS.Color = color end
+                e.headOut.Position = pos
+                e.headOut.Size = UDim2.fromOffset(math.max(r * 2 - 2, 1), math.max(r * 2 - 2, 1))
+                showHead = true
+            end
+        end
+        e.headMain.Visible = showHead
+        e.headOut.Visible = showHead and skelOutline
+        e.skDrawn = true
+    elseif e.skDrawn then
+        e.skDrawn = false
+        for i = 1, #e.skMain do
+            e.skOut[i].Visible = false
+            e.skMain[i].Visible = false
+        end
+        e.headMain.Visible = false
+        e.headOut.Visible = false
+    end
+
+    -- NAME (UE)
+    e.name.Visible = showName
+    if showName then
+        local text = e.player and e.player.DisplayName or model.Name
+        if e.name.Text ~= text then e.name.Text = text end
+        e.name.TextColor3 = Color3.fromRGB(255, 255, 255)
+        e.name.TextStrokeTransparency = 0
+        e.name.TextSize = tonumber(config.ESPNameSize) or 14
+        e.name.Position = UDim2.fromOffset(bx + bw / 2, by - 6)
+    end
+
+    -- DIST + weapon line
+    e.dist.Visible = showDist
+    if showDist then
+        local text = string.format("%dm", math.floor(dist))
+        if e.dist.Text ~= text then e.dist.Text = text end
         e.dist.TextColor3 = Color3.fromRGB(200, 200, 210)
-        e.dist.Position = UDim2.fromOffset(cx, botY + 2)
-    else
-        e.dist.Visible = false
+        e.dist.Position = UDim2.fromOffset(bx + bw / 2, by + bh + 3)
     end
-
-    -- held weapon
-    if config.ESPHeldWeapon then
-        local wpn = espGetWeapon(model, plr)
-        if wpn then
-            e.weapon.Visible = true
-            e.weapon.Text = wpn
-            e.weapon.TextColor3 = Color3.fromRGB(180, 180, 190)
-            e.weapon.Position = UDim2.fromOffset(cx, botY + 16)
-        else
-            e.weapon.Visible = false
+    if e.weapon then
+        local showWep = config.ESPShowWeapon == true
+        e.weapon.Visible = showWep
+        if showWep then
+            local wepName = ""
+            pcall(function()
+                local tool = model:FindFirstChildOfClass("Tool")
+                if tool then wepName = tool.Name end
+            end)
+            e.weapon.Text = wepName
+            e.weapon.Position = UDim2.fromOffset(bx + bw / 2, by + bh + (showDist and 16 or 3))
+            e.weapon.Visible = wepName ~= ""
         end
-    else
-        e.weapon.Visible = false
     end
 
-    -- tracer (Kicia: Origin Bottom/Center/Top/Mouse, Target Feet/Head)
-    if config.ESPTracer then
-        local cam = workspace.CurrentCamera
-        local vp = cam and cam.ViewportSize or Vector2.new(1920, 1080)
-        local originMode = config.ESPTracerOrigin or "Bottom"
-        local from
-        if originMode == "Center" then
-            from = vp / 2
-        elseif originMode == "Top" then
-            from = Vector2.new(vp.X / 2, 0)
-        elseif originMode == "Mouse" then
+    -- HEALTH
+    e.hpBG.Visible = showHP
+    e.hpFill.Visible = showHP
+    e.hpText.Visible = showHP and config.ESPShowHPText == true
+    if showHP then
+        local ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+        local fh = math.max(math.floor(bh * ratio), 1)
+        local barW = tonumber(config.ESPBarWidth) or 4
+        e.hpBG.Position = UDim2.fromOffset(bx - (barW + 4), by - 1)
+        e.hpBG.Size = UDim2.fromOffset(barW + 2, bh + 2)
+        e.hpFill.Position = UDim2.fromOffset(bx - (barW + 3), by + bh - fh)
+        e.hpFill.Size = UDim2.fromOffset(barW, fh)
+        e.hpFill.BackgroundColor3 = Color3.fromHSV(ratio * 0.33, 0.9, 1)
+        if config.ESPShowHPText then
+            local t = tostring(math.floor(hum.Health))
+            if e.hpText.Text ~= t then e.hpText.Text = t end
+            e.hpText.Position = UDim2.fromOffset(bx - (barW + 7), by + bh - fh)
+        end
+    end
+
+    -- TRACERS
+    if showTracers then
+        local origin = Vector2.new(vp.X / 2, vp.Y)
+        local fromMode = tostring(config.ESPTracerFrom or "Bottom")
+        if fromMode == "Center" then origin = Vector2.new(vp.X / 2, vp.Y / 2)
+        elseif fromMode == "Mouse" then
             local m = UserInputService:GetMouseLocation()
-            from = Vector2.new(m.X, m.Y)
-        else
-            from = Vector2.new(vp.X / 2, vp.Y)
+            origin = Vector2.new(m.X, m.Y)
         end
-        local to = (config.ESPTracerTarget == "Head" and top) or bot
-        local tc = config.ESPTracerColor or col
-        local tt = tonumber(config.ESPTracerThickness) or 1.5
-        if config.ESPTracerOutline then
-            espSetLine(e.trOut, from, to, tt + 2, config.ESPTracerOutlineColor or Color3.new(0,0,0), true)
-        else
-            e.trOut.Visible = false
-        end
-        espSetLine(e.trMain, from, to, tt, tc, true)
+        local target = Vector2.new(bx + bw / 2, by + bh)
+        espProSetLine(e.trOut, origin, target, 3, Color3.new(0, 0, 0))
+        espProSetLine(e.trMain, origin, target, 1, color)
     else
-        e.trMain.Visible = false
         e.trOut.Visible = false
+        e.trMain.Visible = false
     end
 
-    -- head marker
-    if config.ESPHeadMarker and head then
-        local hp, onH = espWorldTo(head.Position)
-        if hp then
-            e.head.Visible = true
-            e.head.Position = UDim2.fromOffset(hp.X, hp.Y)
-            local shape = config.ESPHeadMarkerShape or "Cross"
-            local hs = 8
-            local hc = config.ESPHeadMarkerColor or Color3.fromRGB(255, 80, 80)
-            if shape == "Circle" then
-                e.headL1.Visible = false
-                e.headL2.Visible = false
-                e.headCircle.Visible = true
-                e.headCircle.Size = UDim2.fromOffset(hs * 2, hs * 2)
-                e.headCircle.Position = UDim2.fromOffset(0, 0)
-                local stroke = e.headCircle:FindFirstChildOfClass("UIStroke")
-                if stroke then stroke.Color = hc end
-            else
-                e.headCircle.Visible = false
-                espSetLine(e.headL1, Vector2.new(-hs, 0), Vector2.new(hs, 0), 2, hc, true)
-                -- relative to head frame: lines need parent-local coords via Position of lines inside head
-                e.headL1.Position = UDim2.fromOffset(0, 0)
-                e.headL1.Size = UDim2.fromOffset(hs * 2, 2)
-                e.headL1.Rotation = 0
-                e.headL1.Visible = true
-                e.headL1.BackgroundColor3 = hc
-                e.headL2.Position = UDim2.fromOffset(0, 0)
-                e.headL2.Size = UDim2.fromOffset(hs * 2, 2)
-                e.headL2.Rotation = 90
-                e.headL2.Visible = true
-                e.headL2.BackgroundColor3 = hc
-            end
-        else
-            e.head.Visible = false
+    -- CHAMS
+    if showChams then
+        if not e.hl then
+            e.hl = espProCreate("Highlight", {
+                DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+                FillTransparency = tonumber(config.ESPChamsFill) or 0.6,
+                OutlineTransparency = 0,
+                Adornee = model,
+            }, model)
         end
-    else
-        e.head.Visible = false
+        e.hl.FillColor = color
+        e.hl.OutlineColor = color:Lerp(Color3.new(1, 1, 1), 0.5)
+        e.hl.Enabled = true
+    elseif e.hl then
+        e.hl.Enabled = false
     end
-
-    -- skeleton
-    if config.ESPSkeleton then
-        local skCol = config.ESPSkeletonColor or col
-        local skT = tonumber(config.ESPSkeletonThickness) or 1.2
-        for i, pair in ipairs(ESP_BONES) do
-            local a = model:FindFirstChild(pair[1])
-            local b = model:FindFirstChild(pair[2])
-            local pa = a and espWorldTo(a.Position)
-            local pb = b and espWorldTo(b.Position)
-            local outline = e.bones[i + #ESP_BONES]
-            local main = e.bones[i]
-            if pa and pb then
-                espSetLine(outline, pa, pb, skT + 1.5, Color3.new(0,0,0), true)
-                espSetLine(main, pa, pb, skT, skCol, true)
-            else
-                if outline then outline.Visible = false end
-                if main then main.Visible = false end
-            end
-        end
-    else
-        for _, b in ipairs(e.bones) do b.Visible = false end
-    end
-
-    -- chams (Highlight) Kicia style
-    if config.ESPChams or config.ESPChamsEnabled then
-        if not e.cham or not e.cham.Parent then
-            local hl = Instance.new("Highlight")
-            hl.Name = "ShakoChams"
-            hl.Adornee = model
-            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Parent = model
-            e.cham = hl
-        end
-        e.cham.FillColor = config.ESPChamsFill or col
-        e.cham.OutlineColor = config.ESPChamsOutline or Color3.fromRGB(100, 0, 0)
-        e.cham.FillTransparency = tonumber(config.ESPChamsFillTransparency) or 0.5
-        e.cham.OutlineTransparency = tonumber(config.ESPChamsOutlineTransparency) or 0.3
-        e.cham.Enabled = true
-    elseif e.cham then
-        e.cham.Enabled = false
-    end
-
-    return true
 end
 
 StartESP = function()
     config.ESPEnabled = true
     config.ESP = true
+    -- defaults on enable if never set
+    if config.ESPShowBox == nil then config.ESPShowBox = true end
     if config.ESPBox == nil then config.ESPBox = true end
     if config.ESPBoxStyle == nil then config.ESPBoxStyle = "Corner" end
-    if not config.ESPMaxPlayers then config.ESPMaxPlayers = 12 end
-    if config.ESPName == nil then config.ESPName = true end
-    if config.ESPDistance == nil then config.ESPDistance = true end
-    if config.ESPHealthBar == nil then config.ESPHealthBar = true end
-    if not config.ESPBoxColor then config.ESPBoxColor = Color3.fromRGB(255, 255, 255) end
+    if not config.ESPMaxPlayers then config.ESPMaxPlayers = 8 end
+    if config.ESPSkeleton == nil then config.ESPSkeleton = true end
+    if config.ESPShowName == nil then config.ESPShowName = true end
+    if config.ESPShowHP == nil then config.ESPShowHP = true end
+    if config.ESPShowDist == nil then config.ESPShowDist = true end
+    if config.ESPOutline == nil then config.ESPOutline = true end
+    if not config.ESPBoxColor then config.ESPBoxColor = Color3.fromRGB(255, 40, 40) end
+    if not config.ESPColor or config.ESPColor == "Pink" or config.ESPColor == "White" then
+        config.ESPColor = "Red"
+    end
 
     local S = getgenv()._ShakoESPPro
-    for model in pairs(S.Targets) do espDestroyTarget(model) end
+    -- cleanup
+    for model in pairs(S.Targets) do espProRemove(model) end
     S.Targets = {}
     if S.layer then pcall(function() S.layer:Destroy() end) end
+    if S.conn then pcall(function() S.conn:Disconnect() end) S.conn = nil end
     if S.addConn then pcall(function() S.addConn:Disconnect() end) S.addConn = nil end
     if S.bound then
         pcall(function() RunService:UnbindFromRenderStep("ShakoESPPro") end)
         S.bound = false
     end
 
-    local layer = espC("ScreenGui", {
+    local parent = espProGetGuiParent()
+    local layer = espProCreate("ScreenGui", {
         Name = "ShakoESPPro",
         ResetOnSpawn = false,
         IgnoreGuiInset = true,
         DisplayOrder = 50,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-    }, espGuiParent())
+    }, parent)
     S.layer = layer
 
-    local function register(char)
-        if not config.ESPEnabled or not char then return end
-        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 2)
-        if not hum then return end
-        local plr = Players:GetPlayerFromCharacter(char)
-        if plr == LocalPlayer then return end
-        if S.Targets[char] then return end
-        S.Targets[char] = espMakeTarget(char, hum, layer)
+    local function register(hum)
+        if not config.ESPEnabled then return end
+        local model = hum.Parent
+        if not model or not model:IsA("Model") or S.Targets[model] then return end
+        if model == LocalPlayer.Character then return end
+        S.Targets[model] = espProCreateTarget(model, hum, layer)
     end
 
+    -- jugadores actuales
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
-            pcall(register, plr.Character)
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then pcall(register, hum) end
+        end
+    end
+    -- workspace humanoids (optional NPCs)
+    if config.ESPIncludeNPCs then
+        for _, d in ipairs(workspace:GetDescendants()) do
+            if d:IsA("Humanoid") then pcall(register, d) end
         end
     end
 
-    S.addConn = Players.PlayerAdded:Connect(function(plr)
-        plr.CharacterAdded:Connect(function(char)
-            task.defer(function() pcall(register, char) end)
-        end)
+    S.addConn = workspace.DescendantAdded:Connect(function(d)
+        if d:IsA("Humanoid") then
+            task.defer(function() pcall(register, d) end)
+        end
     end)
+
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             plr.CharacterAdded:Connect(function(char)
-                task.defer(function() pcall(register, char) end)
+                task.wait(0.3)
+                if not config.ESPEnabled then return end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then pcall(register, hum) end
             end)
         end
     end
+    Players.PlayerAdded:Connect(function(plr)
+        plr.CharacterAdded:Connect(function(char)
+            task.wait(0.3)
+            if not config.ESPEnabled then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then pcall(register, hum) end
+        end)
+    end)
 
     pcall(function()
-        RunService:BindToRenderStep("ShakoESPPro", Enum.RenderPriority.Camera.Value + 1, function(dt)
+        S._espFrame = 0
+        S._sorted = S._sorted or {}
+        S._lastSort = 0
+        RunService:BindToRenderStep("ShakoESPPro", Enum.RenderPriority.Camera.Value + 1, function()
             if not config.ESPEnabled then return end
-            local S = getgenv()._ShakoESPPro
-            local maxP = math.clamp(tonumber(config.ESPMaxPlayers) or 12, 1, 30)
-            local list = {}
-            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            for model, e in pairs(S.Targets) do
-                if not model.Parent then
-                    espDestroyTarget(model)
-                else
-                    local hrp = model:FindFirstChild("HumanoidRootPart")
-                    local d = (myRoot and hrp) and (hrp.Position - myRoot.Position).Magnitude or 99999
-                    list[#list + 1] = { e = e, dist = d }
+            S._espFrame = (S._espFrame or 0) + 1
+            -- ~20 FPS ESP (menos tirones)
+            if S._espFrame % 3 ~= 0 then return end
+            local cam = workspace.CurrentCamera
+            if not cam then return end
+            local camPos = cam.CFrame.Position
+            local vp = cam.ViewportSize
+            local now = os.clock()
+            local color = espProColor()
+            local maxP = math.clamp(tonumber(config.ESPMaxPlayers) or 8, 1, 25)
+
+            -- reordenar solo cada 0.2s
+            if (now - (S._lastSort or 0)) > 0.2 then
+                S._lastSort = now
+                local list = {}
+                for model, e in pairs(S.Targets) do
+                    if not model.Parent or not e.hum or not e.hum.Parent then
+                        espProRemove(model)
+                    else
+                        local hrp = e.hrp
+                        if not hrp or not hrp.Parent then
+                            hrp = model:FindFirstChild("HumanoidRootPart")
+                            e.hrp = hrp
+                        end
+                        local d = hrp and (hrp.Position - camPos).Magnitude or 1e9
+                        list[#list + 1] = { e = e, dist = d }
+                    end
                 end
+                table.sort(list, function(a, b) return a.dist < b.dist end)
+                S._sorted = list
             end
-            table.sort(list, function(a, b) return a.dist < b.dist end)
+
+            local list = S._sorted or {}
             for i, item in ipairs(list) do
                 if i <= maxP then
-                    pcall(espUpdateOne, item.e, dt)
+                    pcall(espProDraw, item.e, camPos, color, vp, now, cam)
                 else
-                    if item.e.root then
-                        for _, ch in ipairs(item.e.root:GetChildren()) do
-                            if ch:IsA("GuiObject") then ch.Visible = false end
-                        end
-                    end
+                    pcall(espProHide, item.e)
                 end
             end
         end)
     end)
     S.bound = true
-    Notify("ESP", "ON · Kicia style")
+    -- parar otros ESP antiguos si existen
+    pcall(function()
+        if getgenv()._ShakoOldESP and getgenv()._ShakoOldESP.Stop then
+            getgenv()._ShakoOldESP.Stop()
+        end
+    end)
+    Notify("ESP", "ON")
 end
 
 StopESP = function()
     config.ESPEnabled = false
     config.ESP = false
     local S = getgenv()._ShakoESPPro
-    for model in pairs(S.Targets or {}) do espDestroyTarget(model) end
+    for model in pairs(S.Targets or {}) do espProRemove(model) end
     S.Targets = {}
     if S.addConn then pcall(function() S.addConn:Disconnect() end) S.addConn = nil end
     if S.bound then
@@ -10237,6 +10624,15 @@ StopESP = function()
         S.bound = false
     end
     if S.layer then pcall(function() S.layer:Destroy() end) S.layer = nil end
+    -- legacy cleanup
+    pcall(function()
+        if getgenv()._ShakoESP7 then
+            getgenv()._ShakoESP7.on = false
+        end
+        if getgenv()._ShakoLandryESP then
+            getgenv()._ShakoLandryESP.Unloaded = true
+        end
+    end)
     Notify("ESP", "OFF")
 end
 
