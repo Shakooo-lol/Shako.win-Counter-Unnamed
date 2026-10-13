@@ -1,4 +1,4 @@
--- shako.win | v6.7.60 · Menu Key modo TOGGLE (1 press abre, 1 cierra)
+-- shako.win | v6.7.62 · Menu Key modo TOGGLE (1 press abre, 1 cierra)
 -- Avatar mundo + crash fixes · stable boot · no ESP reconnect leak
 
 -- Boot: 1 sola instancia. Si FALLA el load, se puede reintentar.
@@ -462,7 +462,7 @@ do
         end)
         return Library:CreateWindow({
             Title = "shako.win",
-            Footer = "v6.7.60",
+            Footer = "v6.7.62",
             Center = true,
             AutoShow = true,
             Resizable = true,
@@ -569,6 +569,13 @@ getgenv().config = {
     TargetLock = false,
     FakePosition = false,
     FakePosStrength = 8,
+    FakePositionY = 5,
+    ExtendMeleeRange = false,
+    ExtendMeleeRangeDist = 10,
+    FakePositionPanic = false,
+    PanicPositionXMin = -8,
+    PanicPositionXMax = 8,
+    FakePositionWalk = false,
     HitboxExpand = false,
     HitboxSize = 16,
 
@@ -5435,16 +5442,28 @@ silentTarget = function()
 
     local function getHitPart(char)
         if not char then return nil end
-        -- Kicia/Rivals: HitboxHead = daño critico real
-        if config.SilentUseHitboxHead ~= false then
+        local want = tostring(config.SilentHitPart or "Head")
+        -- Solo preferir HitboxHead si el usuario eligio Head
+        if (want == "Head" or want == "HitboxHead") and config.SilentUseHitboxHead ~= false then
             local hb = char:FindFirstChild("HitboxHead")
                 or char:FindFirstChild("HitboxHeadSmall")
             if hb then return hb end
         end
-        local want = config.SilentHitPart or "Head"
+        if want == "Torso" then
+            return char:FindFirstChild("UpperTorso")
+                or char:FindFirstChild("Torso")
+                or char:FindFirstChild("HitboxBody")
+                or char:FindFirstChild("HumanoidRootPart")
+        end
+        if want == "HitboxHead" then
+            return char:FindFirstChild("HitboxHead")
+                or char:FindFirstChild("HitboxHeadSmall")
+                or char:FindFirstChild("Head")
+        end
         return char:FindFirstChild(want)
             or char:FindFirstChild("Head")
             or char:FindFirstChild("HitboxBody")
+            or char:FindFirstChild("HumanoidRootPart")
     end
 
     local function tryPart(char)
@@ -5585,6 +5604,178 @@ function silentIsStartShooting(enumVal)
     return false
 end
 
+
+-- ==================== EXTEND MELEE RANGE (Kicia) ====================
+local MELEE_NAMES = {
+    knife=true, fists=true, katana=true, scythe=true, chainsaw=true,
+    trowel=true, daggers=true, dagger=true, ["battle axe"]=true,
+    ["glass shard"]=true, ["riot shield"]=true, fist=true, axe=true,
+    sword=true, bat=true, hammer=true, melee=true,
+}
+
+local function kiciaCFEncode(cf)
+    local p, y, r = cf:ToOrientation()
+    return {
+        [utf8.char(0)] = cf.X, [utf8.char(1)] = cf.Y, [utf8.char(2)] = cf.Z,
+        [utf8.char(3)] = p, [utf8.char(4)] = y, [utf8.char(5)] = r,
+    }
+end
+
+local function kiciaCFDecode(t)
+    if type(t) ~= "table" then return nil end
+    local x, y, z = t[utf8.char(0)], t[utf8.char(1)], t[utf8.char(2)]
+    local p, yw, r = t[utf8.char(3)], t[utf8.char(4)], t[utf8.char(5)]
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return nil end
+    return CFrame.new(x, y, z) * CFrame.fromOrientation(p or 0, yw or 0, r or 0)
+end
+
+function isMeleeEquipped()
+    local ok, res = pcall(function()
+        if not FighterController then
+            pcall(function()
+                FighterController = require(LocalPlayer.PlayerScripts.Controllers.FighterController)
+            end)
+        end
+        local lf = FighterController and FighterController.LocalFighter
+        if not lf then return false end
+        local slot = nil
+        pcall(function() slot = lf.EquippedSlot or lf.Slot end)
+        if slot == 3 or slot == "Melee" or tostring(slot) == "3" then return true end
+        local item = lf.EquippedItem
+        if not item then return false end
+        local t = nil
+        pcall(function() t = item.__type end)
+        if not t and item.Get then
+            pcall(function() t = item:Get("Type") or item:Get("ItemType") or item:Get("Category") end)
+        end
+        if t and string.find(string.lower(tostring(t)), "melee", 1, true) then return true end
+        local name = ""
+        pcall(function()
+            name = tostring(item.Name or "")
+            if (name == "" or name == "nil") and item.Get then
+                name = tostring(item:Get("Name") or "")
+            end
+        end)
+        name = string.lower(name)
+        if MELEE_NAMES[name] then return true end
+        for k in pairs(MELEE_NAMES) do
+            if string.find(name, k, 1, true) then return true end
+        end
+        return false
+    end)
+    return ok and res == true
+end
+
+function findClosestEnemyRootMelee(origin, range)
+    local best, bestD = nil, range
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local skip = false
+            pcall(function()
+                if config.TeamCheck and type(IsSameTeam) == "function" and IsSameTeam(plr) then skip = true end
+            end)
+            if not skip then
+                local char = plr.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hum and hrp and hum.Health > 0 then
+                    local d = (hrp.Position - origin).Magnitude
+                    if d <= bestD then bestD, best = d, hrp end
+                end
+            end
+        end
+    end
+    return best
+end
+
+function applyExtendMelee(camdata)
+    if not config.ExtendMeleeRange then return camdata end
+    if not isMeleeEquipped() then return camdata end
+    if type(camdata) ~= "table" then return camdata end
+    local range = tonumber(config.ExtendMeleeRangeDist) or 10
+    if range < 5 then range = 5 end
+    if range > 20 then range = 20 end
+    local k1, k0 = utf8.char(1), utf8.char(0)
+    local block = camdata[k1]
+    if type(block) ~= "table" then
+        if camdata[k0] ~= nil then block = camdata else return camdata end
+    end
+    local raw = block[k0]
+    local origin = nil
+    local useTable = type(raw) == "table" and type(raw[k0]) == "number"
+    if useTable then
+        local cf = kiciaCFDecode(raw)
+        if cf then origin = cf.Position end
+    end
+    if not origin and util and util.DecodeCFrame and raw then
+        local ok, cf = pcall(function() return util:DecodeCFrame(raw) end)
+        if ok and typeof(cf) == "CFrame" then origin = cf.Position end
+    end
+    if not origin then
+        local my = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not my then return camdata end
+        origin = my.Position
+    end
+    local enemy = findClosestEnemyRootMelee(origin, range)
+    if not enemy then return camdata end
+    local aimCF = CFrame.new(enemy.Position) * CFrame.fromOrientation(-1.5707963267948966, 0, 0)
+    if useTable then
+        local enc = kiciaCFEncode(aimCF)
+        block[k0], block[k1] = enc, enc
+    else
+        local U = util
+        if not U then pcall(function() U = require(game:GetService("ReplicatedStorage").Modules.Utility) end) end
+        if U and U.EncodeCFrame then
+            local enc = U:EncodeCFrame(aimCF)
+            block[k0], block[k1] = enc, enc
+        else
+            local enc = kiciaCFEncode(aimCF)
+            block[k0], block[k1] = enc, enc
+        end
+    end
+    return camdata
+end
+
+
+
+-- UseItem hook permanente (melee + silent)
+task.spawn(function()
+    for _ = 1, 40 do
+        if silentOldFire then return end
+        local ok, UseItem = pcall(function()
+            return game:GetService("ReplicatedStorage").Remotes.Replication.Fighter.UseItem
+        end)
+        if ok and UseItem and hookfunction then
+            pcall(function()
+                silentOldFire = hookfunction(UseItem.FireServer, newcclosure(function(self, objID, enumVal, camdata, extra, ...)
+                    if config.ExtendMeleeRange and type(applyExtendMelee) == "function" then
+                        local okM, patchedM = pcall(applyExtendMelee, camdata)
+                        if okM and patchedM ~= nil then camdata = patchedM end
+                    end
+                    if config.SilentAimEnabled and getgenv()._ShakoSilentActive then
+                        local isShoot = false
+                        pcall(function()
+                            if type(silentIsStartShooting) == "function" then
+                                isShoot = silentIsStartShooting(enumVal) == true
+                            end
+                        end)
+                        if isShoot then
+                            local patchFn = getgenv()._ShakoSilentPatch
+                            if type(patchFn) == "function" then
+                                local okP, patched = pcall(patchFn, camdata)
+                                if okP and patched ~= nil then camdata = patched end
+                            end
+                        end
+                    end
+                    return silentOldFire(self, objID, enumVal, camdata, extra, ...)
+                end))
+            end)
+            return
+        end
+        task.wait(0.25)
+    end
+end)
+
 StartSilentAim = function()
     loadSilentDeps()
     if not util or not enum then
@@ -5703,18 +5894,38 @@ StartSilentAim = function()
         UseItem = RS.Remotes.Replication.Fighter.UseItem
     end)
 
-    if UseItem and hookfunction and not silentOldFire then
-        pcall(function()
-            silentOldFire = hookfunction(UseItem.FireServer, newcclosure(function(self, objID, enumVal, camdata, extra, ...)
-                if config.SilentAimEnabled and silentIsStartShooting(enumVal) then
-                    local ok, patched = pcall(patchCamdata, camdata)
-                    if ok and patched ~= nil then
-                        camdata = patched
+    getgenv()._ShakoSilentPatch = patchCamdata
+    getgenv()._ShakoSilentActive = true
+
+    if UseItem and hookfunction then
+        if not silentOldFire then
+            pcall(function()
+                silentOldFire = hookfunction(UseItem.FireServer, newcclosure(function(self, objID, enumVal, camdata, extra, ...)
+                    if config.ExtendMeleeRange and type(applyExtendMelee) == "function" then
+                        local okM, patchedM = pcall(applyExtendMelee, camdata)
+                        if okM and patchedM ~= nil then camdata = patchedM end
                     end
-                end
-                return silentOldFire(self, objID, enumVal, camdata, extra, ...)
-            end))
-        end)
+                    if config.SilentAimEnabled and getgenv()._ShakoSilentActive then
+                        local isShoot = false
+                        pcall(function()
+                            if type(silentIsStartShooting) == "function" then
+                                isShoot = silentIsStartShooting(enumVal) == true
+                            end
+                        end)
+                        if isShoot then
+                            local patchFn = getgenv()._ShakoSilentPatch
+                            if type(patchFn) == "function" then
+                                local ok, patched = pcall(patchFn, camdata)
+                                if ok and patched ~= nil then camdata = patched end
+                            end
+                        end
+                    end
+                    return silentOldFire(self, objID, enumVal, camdata, extra, ...)
+                end))
+            end)
+        else
+            getgenv()._ShakoSilentPatch = patchCamdata
+        end
     end
 
     if not silentOldFire and not silentOldNamecall and hookmetamethod then
@@ -5747,6 +5958,8 @@ end
 
 StopSilentAim = function()
     config.SilentAimEnabled = false
+    getgenv()._ShakoSilentActive = false
+    getgenv()._ShakoSilentPatch = nil
     Notify("Silent", "OFF")
 end
 
@@ -5999,21 +6212,85 @@ function DoAutoEquip() end
 function StartAutoEquip() end
 function StopAutoEquip() end
 
+-- Fake Position (Sleepy-style): baja tu body en Y; el server/hitreg ve otra pos
+local FakePosState = { original = nil, owned = false }
+
+function clearFakePosition()
+    FakePosState.original = nil
+    FakePosState.owned = false
+    pcall(function() getgenv().GodOriginalPos = nil end)
+end
+
 function ApplyFakePosition()
     if not config.FakePosition then return end
-    local myHRP = getHRP()
+    local myHRP = getHRP and getHRP() or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
     if not myHRP then return end
-    if not FakePart or not FakePart.Parent then
-        FakePart = Instance.new("Part")
-        FakePart.Name = "FakePos_Expert"
-        FakePart.Size = Vector3.new(2, 2, 1)
-        FakePart.Transparency = 1
-        FakePart.CanCollide = false
-        FakePart.Anchored = true
-        FakePart.Parent = workspace
+
+    if config.FakePositionWalk then
+        local orig = FakePosState.original or getgenv().GodOriginalPos
+        if orig then
+            myHRP.AssemblyLinearVelocity = Vector3.zero
+            myHRP.AssemblyAngularVelocity = Vector3.zero
+            myHRP.CFrame = orig
+            clearFakePosition()
+        end
+        return
     end
-    local s = config.FakePosStrength
-    FakePart.CFrame = myHRP.CFrame * CFrame.new(math.random(-s, s), math.random(-s / 2, s / 2), math.random(-s, s))
+
+    if not FakePosState.original then
+        FakePosState.original = myHRP.CFrame
+        pcall(function() getgenv().GodOriginalPos = myHRP.CFrame end)
+    end
+
+    local yOff = tonumber(config.FakePositionY) or 5
+    local fakePos = FakePosState.original.Position - Vector3.new(0, yOff, 0)
+    if config.FakePositionPanic then
+        local minX = tonumber(config.PanicPositionXMin) or -8
+        local maxX = tonumber(config.PanicPositionXMax) or 8
+        if maxX < minX then minX, maxX = maxX, minX end
+        fakePos = fakePos + Vector3.new(minX + math.random() * (maxX - minX), 0, 0)
+    end
+    if (myHRP.Position - fakePos).Magnitude > 0.5 then
+        myHRP.AssemblyLinearVelocity = Vector3.zero
+        myHRP.AssemblyAngularVelocity = Vector3.zero
+    end
+    local rot = FakePosState.original - FakePosState.original.Position
+    myHRP.CFrame = CFrame.new(fakePos) * rot
+    FakePosState.owned = true
+end
+
+function StartFakePosition()
+    config.FakePosition = true
+    FakePosState.owned = true
+    if type(SafeDisconnect) == "function" then
+        SafeDisconnect("FakePosition")
+    elseif Connections and Connections.FakePosition then
+        pcall(function() Connections.FakePosition:Disconnect() end)
+        Connections.FakePosition = nil
+    end
+    Connections = Connections or {}
+    Connections.FakePosition = RunService.Heartbeat:Connect(function()
+        if config.FakePosition then
+            pcall(ApplyFakePosition)
+        end
+    end)
+end
+
+function StopFakePosition()
+    config.FakePosition = false
+    if type(SafeDisconnect) == "function" then
+        SafeDisconnect("FakePosition")
+    elseif Connections and Connections.FakePosition then
+        pcall(function() Connections.FakePosition:Disconnect() end)
+        Connections.FakePosition = nil
+    end
+    local myHRP = getHRP and getHRP() or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
+    if myHRP and FakePosState.original then
+        myHRP.AssemblyLinearVelocity = Vector3.zero
+        myHRP.AssemblyAngularVelocity = Vector3.zero
+        myHRP.CFrame = FakePosState.original
+    end
+    clearFakePosition()
 end
 function AntiSafeZone()
     -- DESACTIVADO: ya no te manda al cielo
@@ -6456,13 +6733,28 @@ function GetAimbotTarget()
     local closest, shortest = nil, config.AimbotFOV
     local mousePos = UserInputService:GetMouseLocation()
     local partName = config.AimbotPart or "Head"
+    local function resolveAimPart(char)
+        if not char then return nil end
+        local want = tostring(partName or "Head")
+        if want == "Head" or want == "HitboxHead" then
+            local hb = char:FindFirstChild("HitboxHead") or char:FindFirstChild("HitboxHeadSmall")
+            if hb then return hb end
+            if want == "HitboxHead" then return char:FindFirstChild("Head") end
+        end
+        if want == "Torso" then
+            return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+        end
+        return char:FindFirstChild(want)
+            or char:FindFirstChild("Head")
+            or char:FindFirstChild("HumanoidRootPart")
+    end
     for _, plr in pairs(Players:GetPlayers()) do
         if plr == LocalPlayer then continue end
         if config.AimbotTeamCheck and IsSameTeam(plr) then continue end
         local char = plr.Character
         if not char then continue end
         local hum = char:FindFirstChildOfClass("Humanoid")
-        local part = char:FindFirstChild(partName) or char:FindFirstChild("Head")
+        local part = resolveAimPart(char)
         if not hum or not part or hum.Health <= 0 then continue end
         local sp, on = Camera:WorldToViewportPoint(part.Position)
         if not on or sp.Z < 0 then continue end
@@ -15905,7 +16197,9 @@ function tickVM()
                 h.Name = "ShakoVMChams"
                 h.Adornee = model
                 h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                h.Parent = model
+                local _hp = game:GetService("CoreGui")
+                pcall(function() if gethui then _hp = gethui() end end)
+                h.Parent = _hp
                 Highlights[model] = h
             end
             h.FillColor = cfg.VMChamsColor or Color3.fromRGB(255, 255, 255)
@@ -17813,7 +18107,29 @@ SoftBox:AddSlider("SpawnDelay", {
 })
 SoftBox:AddToggle("FakePosition", {
     Text = "Fake Position", Default = false,
-    Callback = function(v) config.FakePosition = v end
+    Callback = function(v)
+        if v then StartFakePosition() else StopFakePosition() end
+    end
+})
+SoftBox:AddSlider("FakePositionY", {
+    Text = "Fake Y Offset", Default = 5, Min = 0, Max = 30, Rounding = 1,
+    Callback = function(v) config.FakePositionY = v end
+})
+SoftBox:AddToggle("FakePositionPanic", {
+    Text = "Panic X Offset", Default = false,
+    Callback = function(v) config.FakePositionPanic = v end
+})
+SoftBox:AddSlider("PanicPositionXMin", {
+    Text = "Panic X Min", Default = -8, Min = -30, Max = 0, Rounding = 1,
+    Callback = function(v) config.PanicPositionXMin = v end
+})
+SoftBox:AddSlider("PanicPositionXMax", {
+    Text = "Panic X Max", Default = 8, Min = 0, Max = 30, Rounding = 1,
+    Callback = function(v) config.PanicPositionXMax = v end
+})
+SoftBox:AddToggle("FakePositionWalk", {
+    Text = "Walk Restore", Default = false,
+    Callback = function(v) config.FakePositionWalk = v end
 })
 
 -- RAGE FULL
@@ -18052,12 +18368,12 @@ bindKey(togSilent, "SilentAimKey", "...")
 
 SilentBox:AddDropdown("SilentHitPart", {
     Text = "Hit Part",
-    Values = {"Head", "HumanoidRootPart", "UpperTorso", "Torso"},
+    Values = {"Head", "HitboxHead", "UpperTorso", "LowerTorso", "Torso", "HumanoidRootPart", "LeftUpperArm", "RightUpperArm"},
     Default = 1,
     Callback = function(v) config.SilentHitPart = v end
 })
 SilentBox:AddToggle("SilentUseHitboxHead", {
-    Text = "Use HitboxHead", Default = true,
+    Text = "Prefer HitboxHead (Head)", Default = true,
     Callback = function(v) config.SilentUseHitboxHead = v end
 })
 SilentBox:AddSlider("SilentFOV", {
@@ -18184,6 +18500,12 @@ AimBox:AddDropdown("AimbotKeyMode", {
     end
 })
 AimBox:AddLabel("Hold = mantener | Toggle = on/off | Always = siempre")
+AimBox:AddDropdown("AimbotPart", {
+    Text = "Hit Part",
+    Values = {"Head", "HitboxHead", "UpperTorso", "LowerTorso", "Torso", "HumanoidRootPart", "LeftUpperArm", "RightUpperArm"},
+    Default = 1,
+    Callback = function(v) config.AimbotPart = v end
+})
 
 -- Aimbot SOLO con keybind (...) — sin click derecho
 AimBox:AddToggle("AimbotWallCheck", {
@@ -19467,7 +19789,20 @@ ViewmodelBox:AddSlider("VMRecoil", {
 })
 ViewmodelBox:AddToggle("VMChams", {
     Text = "chams", Default = false,
-    Callback = function(v) config.VMChams = v end
+    Callback = function(v)
+        config.VMChams = v
+        if not v then
+            pcall(function()
+                local Vis2 = getgenv()._ShakoVisMain
+                if Vis2 and Vis2.highlights then
+                    for _, h in pairs(Vis2.highlights) do
+                        pcall(function() h:Destroy() end)
+                    end
+                    Vis2.highlights = {}
+                end
+            end)
+        end
+    end
 })
 pcall(function()
     if addColor3 then
@@ -20371,6 +20706,14 @@ MoveBox:AddSlider("FlyBoost", {
     Text = "Fly Boost (Shift)", Default = 1.8, Min = 1, Max = 5, Rounding = 1,
     Callback = function(v) config.FlyBoost = v end
 })
+MoveBox:AddToggle("ExtendMeleeRange", {
+    Text = "Extend Melee Range", Default = false,
+    Callback = function(v) config.ExtendMeleeRange = v end
+})
+MoveBox:AddSlider("ExtendMeleeRangeDist", {
+    Text = "Range", Default = 10, Min = 5, Max = 20, Rounding = 0,
+    Callback = function(v) config.ExtendMeleeRangeDist = v end
+})
 togNoclip = MoveBox:AddToggle("NoclipToggle", {
     Text = "Noclip", Default = false,
     Callback = function(v) config.NoclipEnabled = v if v then StartNoclip() else StopNoclip() end end
@@ -21131,14 +21474,22 @@ do
                     if not h or not h.Parent then
                         h = Instance.new("Highlight")
                         h.Name = "ShakoVMChams"
-                        h.Parent = root
+                        local parent = game:GetService("CoreGui")
+                        pcall(function()
+                            if gethui then parent = gethui() end
+                        end)
+                        h.Parent = parent
                         Vis2.highlights[root] = h
                     end
                     h.Adornee = root
-                    h.FillColor = cfg.VMChamsColor or Color3.new(1,1,1)
-                    h.OutlineColor = Color3.new(1,1,1)
-                    h.FillTransparency = (tonumber(cfg.VMChamFill) or 2) / 100
-                    h.OutlineTransparency = (tonumber(cfg.VMChamOutline) or 1) / 100
+                    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    h.FillColor = cfg.VMChamsColor or Color3.fromRGB(255, 255, 255)
+                    h.OutlineColor = cfg.VMChamsColor or Color3.fromRGB(255, 255, 255)
+                    local fill = tonumber(cfg.VMChamFill) or 2
+                    local outl = tonumber(cfg.VMChamOutline) or 1
+                    -- sliders 0-100 → transparency 0-1
+                    h.FillTransparency = math.clamp(fill / 100, 0, 1)
+                    h.OutlineTransparency = math.clamp(outl / 100, 0, 1)
                     h.Enabled = true
                 end)
             end
@@ -21224,12 +21575,14 @@ do
     if Vis2.conn then pcall(function() Vis2.conn:Disconnect() end) end
     local _vmFrame = 0
     Vis2.conn = RunService.RenderStepped:Connect(function()
-        -- solo si hay override/wireframe activo
-        if not (config.WeaponWireframe or config.ViewmodelOverride or config.OverrideWeaponStatus or config.ItemOverride) then
+        -- incluir chams / offset / appearance
+        if not (config.WeaponWireframe or config.ViewmodelOverride or config.OverrideWeaponStatus
+            or config.ItemOverride or config.VMChams or config.VMOffset or config.VMAppearance
+            or config.ArmAppearance or config.VMWireframe or config.RemoveVignette or config.VMOverrideFps) then
             return
         end
         _vmFrame += 1
-        if _vmFrame % 3 ~= 0 then return end
+        if _vmFrame % 2 ~= 0 then return end
         pcall(tickVM)
     end)
 end
@@ -22851,7 +23204,7 @@ end)
 
 -- ==================== UNLOCK ALL (Rivals Skinchanger - low lag) ====================
 -- Instala hooks UNA sola vez. Sin loops por frame.
-StartUnlockAll, StopUnlockAll = StartUnlockAll, StopUnlockAll
+StartUnlockAll, StopUnlockAll = StartUnlockAll, StopUnlockAll;
 do
     local installed = false
     local enabledFlag = false
@@ -23259,8 +23612,7 @@ do
                 ItemLibrary.GetViewModelImageFromWeaponData = function(self, weaponData, highRes)
                     if enabledFlag and weaponData then
                         local weaponName = weaponData.Name
-                        local shouldShow = (weaponData.Skin and equipped[weaponName] and weaponData.Skin == equipped[weaponName].Skin)
-                            or (viewingProfile == player and equipped[weaponName] and equipped[weaponName].Skin)
+                        local shouldShow = ((weaponData.Skin and equipped[weaponName] and weaponData.Skin == equipped[weaponName].Skin) or (viewingProfile == player and equipped[weaponName] and equipped[weaponName].Skin))
                         if shouldShow and equipped[weaponName] and equipped[weaponName].Skin then
                             local skinInfo = self.ViewModels[equipped[weaponName].Skin.Name]
                             if skinInfo then
